@@ -5,6 +5,7 @@ import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 
 import '../bootstrap/fastlane_cli_launcher.dart';
+import '../version.dart';
 import 'completion_command.dart';
 import 'doctor_command.dart';
 import 'init_command.dart';
@@ -18,8 +19,9 @@ import 'skills_install_command.dart';
 /// passed (the legacy invocation), delegates to [FastlaneCliLauncher] so the
 /// TUI keeps working exactly as it did before Wave 2 / Track A2.
 class FastlaneCliRunner extends CommandRunner<int> {
-  FastlaneCliRunner({FastlaneCliLauncher? launcher})
+  FastlaneCliRunner({FastlaneCliLauncher? launcher, StringSink? stdoutSink})
     : _launcher = launcher ?? FastlaneCliLauncher(),
+      _stdoutSink = stdoutSink,
       super(
         'fastlane_cli',
         'Terminal-first Fastlane assistant for Flutter projects.',
@@ -38,6 +40,16 @@ class FastlaneCliRunner extends CommandRunner<int> {
         defaultsTo: false,
         negatable: false,
         help: 'Build command and stream logs without execution.',
+      )
+      // Short alias `-v` is free (no other top-level option claims it; see
+      // the abbr survey in the PR adding this flag). If a future flag needs
+      // `-v`, drop the `abbr:` here and keep `--version` only.
+      ..addFlag(
+        'version',
+        abbr: 'v',
+        defaultsTo: false,
+        negatable: false,
+        help: 'Print the fastlane_cli version and exit.',
       );
 
     addCommand(RunCommand());
@@ -49,10 +61,31 @@ class FastlaneCliRunner extends CommandRunner<int> {
   }
 
   final FastlaneCliLauncher _launcher;
+  final StringSink? _stdoutSink;
+
+  /// Writes the version banner — separated for tests that prefer to assert
+  /// against an injected sink rather than capture process stdout.
+  void _writeVersion() {
+    final sink = _stdoutSink;
+    if (sink != null) {
+      sink.write('fastlane_cli $fastlaneCliVersion\n');
+    } else {
+      stdout.write('fastlane_cli $fastlaneCliVersion\n');
+    }
+  }
 
   @override
   Future<int> run(Iterable<String> args) async {
     final argList = args.toList(growable: false);
+
+    // `--version` / `-v` short-circuits everything: no profile, no
+    // subcommand, no TUI. Scan the raw token list (rather than parsing
+    // via argParser) so we never trip on missing required values of
+    // *other* top-level options when the user only wanted the version.
+    if (_wantsVersion(argList)) {
+      _writeVersion();
+      return 0;
+    }
 
     // Detect "no subcommand was given" → delegate to the TUI launcher. We
     // can't rely on argResults.command here because top-level flags
@@ -76,6 +109,33 @@ class FastlaneCliRunner extends CommandRunner<int> {
     }
   }
 
+  /// Returns true if the user passed `--version` or `-v` at the top level
+  /// (i.e. before any subcommand boundary). Stops scanning at `--` and at
+  /// the first known subcommand name so `fastlane_cli run --version` is
+  /// *not* hijacked here (a subcommand can still own its own `--version`
+  /// if it ever wants to).
+  bool _wantsVersion(List<String> args) {
+    final subcommandNames = commands.keys.toSet();
+    const valueFlags = <String>{'--profile', '-p', '--lang'};
+    for (var i = 0; i < args.length; i++) {
+      final token = args[i];
+      if (token == '--') return false;
+      if (token == '--version' || token == '-v') return true;
+      if (!token.startsWith('-')) {
+        // Hit a positional; if it's a subcommand, stop scanning so the
+        // subcommand handles its own flags.
+        if (subcommandNames.contains(token)) return false;
+        // Otherwise keep scanning — TUI-style positional, not a subcommand.
+        continue;
+      }
+      // Skip the value of a known `--opt value` pair.
+      if (valueFlags.contains(token) && !token.contains('=')) {
+        i++;
+      }
+    }
+    return false;
+  }
+
   bool _shouldDelegateToTui(List<String> args) {
     if (args.isEmpty) {
       return true;
@@ -88,6 +148,7 @@ class FastlaneCliRunner extends CommandRunner<int> {
       '--help',
       '-h',
       '--version',
+      '-v',
     };
 
     final subcommandNames = commands.keys.toSet();
@@ -112,7 +173,10 @@ class FastlaneCliRunner extends CommandRunner<int> {
         if (boolFlags.contains(token)) {
           // `--help` at top-level is a CommandRunner concern; let super.run
           // handle it so users get the subcommand listing.
-          if (token == '--help' || token == '-h' || token == '--version') {
+          if (token == '--help' ||
+              token == '-h' ||
+              token == '--version' ||
+              token == '-v') {
             return false;
           }
           i++;
@@ -137,5 +201,6 @@ ArgParser buildTopLevelParser() {
     ..addOption('profile', abbr: 'p')
     ..addOption('lang', allowed: const <String>['tr', 'en'])
     ..addFlag('dry-run', defaultsTo: false, negatable: false)
-    ..addFlag('help', abbr: 'h', defaultsTo: false, negatable: false);
+    ..addFlag('help', abbr: 'h', defaultsTo: false, negatable: false)
+    ..addFlag('version', abbr: 'v', defaultsTo: false, negatable: false);
 }
