@@ -1,11 +1,21 @@
-# Release pipeline — Track D1 (Wave 1 skeleton)
+# Release pipeline — Track D1 (Wave 3 finalized)
 #
 # Builds platform-specific tarballs of the fastlane_cli binary + its Ruby/Fastlane
-# runner assets, computes sha256 checksums, and attaches them to a GitHub Release.
+# runner assets + the bundled Claude skills, computes sha256 checksums, and
+# attaches them to a GitHub Release.
 #
-# Triggered on semver-style tag push (v*.*.*). The tarball shape will be
-# finalised in Wave 3; for now `skills/` and `LICENSE` are tolerated as
-# optional (Track C1 ships `skills/`, §0 decides `LICENSE`).
+# Triggered on semver-style tag push (v*.*.*).
+#
+# Tarball layout (consumed by dist/homebrew/Formula/fastlane_cli.rb):
+#   build/fastlane_cli          # AOT-compiled binary -> bin.install
+#   fastlane/                   # runner: Fastfile, Gemfile, common_helpers.rb,
+#                               # storepilot_bridge.rb, actions/, cli_profile.base.yaml,
+#                               # ios/defaults/, AND sync_metadata_fallbacks.rb (relocated
+#                               # from bin/ at packaging time so the formula's
+#                               # `(share/"fastlane_cli").install "fastlane"` sweeps it in).
+#   skills/                     # bundled Claude/Cursor skills (mandatory, Track C1)
+#   README.md                   # mandatory
+#   LICENSE                     # optional (ROADMAP §0 still open) — emits ::notice:: when absent
 
 name: Release
 
@@ -15,8 +25,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  # Needed for actions/create-release / softprops to upload assets and
-  # write to the Releases API. `GITHUB_TOKEN` is provided automatically.
+  # Needed for softprops/action-gh-release to write to the Releases API.
   contents: write
 
 jobs:
@@ -24,8 +33,7 @@ jobs:
     name: Build ${{ matrix.os_label }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
-      # Don't cancel sibling legs on a single failure — surface all platform
-      # issues at once when cutting a release.
+      # Surface all platform issues at once when cutting a release.
       fail-fast: false
       matrix:
         include:
@@ -43,17 +51,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Pin to a Dart version that satisfies pubspec.yaml (`>=3.11.0 <4.0.0`).
-      # Note: ROADMAP §3 mentioned `3.6.x`, but the current SDK floor is 3.11.
+      # pubspec.yaml floor is `>=3.11.0 <4.0.0`. Using `sdk: stable` keeps the
+      # workflow forward-compatible without manual bumps — stable has satisfied
+      # the floor since Dart 3.11 shipped. If a future SDK breaks us, pin here
+      # to a 3.11.x release explicitly.
       - name: Setup Dart
         uses: dart-lang/setup-dart@v1
         with:
-          sdk: 3.11.x
+          sdk: stable
 
       - name: Install dependencies
         run: dart pub get
 
-      # Fail-fast: a red test must block the release artifact upload.
+      # Block releases on lint regressions too — --fatal-infos catches the
+      # whole severity ladder (info/warning/error).
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      # Fail-fast: a red test must block the release artifact upload. With the
+      # matrix `fail-fast: false`, sibling legs continue so we still see all
+      # platform failures in one run.
       - name: Run tests
         run: dart test
 
@@ -62,32 +79,64 @@ jobs:
           mkdir -p build
           dart compile exe bin/fastlane_cli.dart -o build/fastlane_cli
 
-      # Build the distributable tarball. `skills/` (Track C1) and `LICENSE`
-      # (§0 decision) may not yet exist; we collect existing optional paths
-      # into a variable so `tar` only sees real files and the workflow does
-      # not fail in the interim.
+      # Stage tarball contents into a clean directory so the archive root has
+      # exactly the layout the formula expects. In particular,
+      # bin/sync_metadata_fallbacks.rb lives outside fastlane/ in the source
+      # tree (Wave 1 D1 flagged this); relocating it under fastlane/ at
+      # packaging time means the formula's `share.install "fastlane"` picks it
+      # up without a special case in install().
+      - name: Stage tarball contents
+        id: stage
+        run: |
+          set -euo pipefail
+          STAGE="stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/build" "$STAGE/fastlane"
+
+          # --- Required paths (fail loudly if missing) ----------------------
+          cp build/fastlane_cli "$STAGE/build/fastlane_cli"
+
+          # Copy the entire fastlane/ runner tree.
+          cp -R fastlane/. "$STAGE/fastlane/"
+
+          # Pull bin/sync_metadata_fallbacks.rb into fastlane/ so the formula
+          # install block sweeps it in. Prefer (a) from the Wave 1 D1 note.
+          if [ -f bin/sync_metadata_fallbacks.rb ]; then
+            cp bin/sync_metadata_fallbacks.rb "$STAGE/fastlane/sync_metadata_fallbacks.rb"
+          else
+            echo "::warning::bin/sync_metadata_fallbacks.rb not found — lanes that shell out to it will fail at runtime"
+          fi
+
+          # skills/ is now mandatory (Track C1 shipped). README.md is mandatory.
+          if [ ! -d skills ]; then
+            echo "::error::skills/ is required (Track C1) but was not found"
+            exit 1
+          fi
+          cp -R skills "$STAGE/skills"
+
+          if [ ! -f README.md ]; then
+            echo "::error::README.md is required but was not found"
+            exit 1
+          fi
+          cp README.md "$STAGE/README.md"
+
+          # --- Optional paths -----------------------------------------------
+          if [ -f LICENSE ]; then
+            cp LICENSE "$STAGE/LICENSE"
+          else
+            echo "::notice::LICENSE not present — ROADMAP §0 has not chosen one yet; shipping without it for now"
+          fi
+
+          echo "stage_dir=$STAGE" >> "$GITHUB_OUTPUT"
+
       - name: Create tarball
         id: tarball
         run: |
           set -euo pipefail
           TARBALL="fastlane_cli-${{ matrix.os_label }}-${{ matrix.arch }}.tar.gz"
-
-          # Required paths — these MUST exist; let tar fail loudly if missing.
-          REQUIRED=(build/fastlane_cli fastlane)
-
-          # Optional paths — include only if present on disk at build time.
-          OPTIONAL_CANDIDATES=(skills README.md LICENSE)
-          OPTIONAL=()
-          for path in "${OPTIONAL_CANDIDATES[@]}"; do
-            if [ -e "$path" ]; then
-              OPTIONAL+=("$path")
-            else
-              echo "::notice::Optional release asset not present, skipping: $path"
-            fi
-          done
-
-          tar -czvf "$TARBALL" "${REQUIRED[@]}" "${OPTIONAL[@]}"
-
+          # -C $STAGE so paths inside the archive are repo-root-relative
+          # (build/fastlane_cli, fastlane/..., skills/..., README.md, [LICENSE]).
+          tar -czvf "$TARBALL" -C "${{ steps.stage.outputs.stage_dir }}" .
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
 
       # Compute sha256 portably (macOS uses `shasum`, Linux ships `sha256sum`).
@@ -105,8 +154,8 @@ jobs:
           echo "sha256=$SUM" >> "$GITHUB_OUTPUT"
           echo "checksum_file=${TARBALL}.sha256" >> "$GITHUB_OUTPUT"
 
-      # Stash the sha line so the publish job can assemble a unified
-      # checksum block in the release body.
+      # Stash a single-line checksum so the publish job can assemble a
+      # deterministic fenced block in the release body (Track D2 sed-scrapes it).
       - name: Stage checksum line
         run: |
           set -euo pipefail
@@ -151,8 +200,9 @@ jobs:
           path: checksum-lines
           merge-multiple: true
 
-      # Assemble a single SHA256 block for the release body so consumers
-      # (and the future Homebrew tap auto-bump in §4) can scrape one section.
+      # Assemble a single SHA256 block for the release body. The fenced
+      # ```text block is what Track D2's tap-update workflow sed-extracts
+      # to bump Formula/fastlane_cli.rb sha256 fields.
       - name: Build release body
         id: body
         run: |
@@ -162,7 +212,7 @@ jobs:
             echo
             echo "Repository: ${{ github.repository }}"
             echo
-            echo "### SHA256 checksums"
+            echo "## Checksums"
             echo
             echo '```'
             cat checksum-lines/*.txt | sort
@@ -184,6 +234,74 @@ jobs:
             dist/*.tar.gz
             dist/*.tar.gz.sha256
         env:
-          # Auto-provided per-run token, scoped by the `contents: write`
-          # permission at the workflow level. No PAT or hardcoded owner needed.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Forward-compat hook for Track D2: ping the (future) homebrew-fastlane_cli
+      # tap repo so its CI can open a PR updating Formula/fastlane_cli.rb.
+      #
+      # Contract for the receiving tap workflow:
+      #   on:
+      #     repository_dispatch:
+      #       types: [release-published]
+      #
+      #   client_payload schema:
+      #     tag         : "v0.1.0"                                    (string)
+      #     repository  : "<owner>/fastlane_cli"                      (string)
+      #     release_url : "https://github.com/.../releases/tag/v..."  (string)
+      #
+      # The tap workflow then fetches the release body, sed-extracts the
+      # ``` fenced ## Checksums block (lines: "<sha>  <tarball>"), rewrites
+      # the formula's url/sha256 triples per platform, and opens a PR.
+      #
+      # `TAP_DISPATCH_TOKEN` must be a fine-grained PAT with `contents: write`
+      # on the tap repo (a default GITHUB_TOKEN can't cross repos). The tap
+      # owner/name is parameterized via `TAP_REPOSITORY` repo-var (e.g.
+      # `<owner>/homebrew-fastlane_cli`) so this workflow doesn't bake in a
+      # hardcoded slug. Both are optional in Wave 3 — D2 hasn't created the
+      # tap repo yet — so we `continue-on-error` and emit a warning instead
+      # of failing the release.
+      - name: Dispatch release-published to tap repo
+        id: tap_dispatch
+        continue-on-error: true
+        env:
+          TAP_DISPATCH_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
+          TAP_REPOSITORY: ${{ vars.TAP_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_DISPATCH_TOKEN:-}" ]; then
+            echo "::warning::TAP_DISPATCH_TOKEN secret not set — skipping tap repository_dispatch. Track D2 will wire this once the tap repo exists."
+            exit 0
+          fi
+          if [ -z "${TAP_REPOSITORY:-}" ]; then
+            echo "::warning::TAP_REPOSITORY repo-var not set — skipping tap repository_dispatch. Set it to e.g. <owner>/homebrew-fastlane_cli once D2 creates the tap repo."
+            exit 0
+          fi
+
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+          PAYLOAD=$(cat <<JSON
+          {
+            "event_type": "release-published",
+            "client_payload": {
+              "tag": "${{ github.ref_name }}",
+              "repository": "${{ github.repository }}",
+              "release_url": "${RELEASE_URL}"
+            }
+          }
+          JSON
+          )
+
+          echo "Dispatching release-published to ${TAP_REPOSITORY}..."
+          HTTP_CODE=$(curl -sS -o /tmp/dispatch.out -w "%{http_code}" \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${TAP_DISPATCH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${TAP_REPOSITORY}/dispatches" \
+            -d "${PAYLOAD}")
+
+          if [ "${HTTP_CODE}" != "204" ]; then
+            echo "::warning::repository_dispatch returned HTTP ${HTTP_CODE} (expected 204):"
+            cat /tmp/dispatch.out
+            exit 1
+          fi
+          echo "Dispatched release-published to ${TAP_REPOSITORY} (HTTP 204)."
