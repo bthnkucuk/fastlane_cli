@@ -87,6 +87,8 @@ class DoctorService {
     entries.add(await _checkBundleCache());
 
     if (profile != null) {
+      entries.add(_checkAppRoot(profile));
+      entries.add(_checkFastlaneDir(profile));
       final platforms = _inferPlatforms(profile);
       if (platforms.contains(_Platform.ios)) {
         entries.add(_checkIosCredentials());
@@ -256,6 +258,38 @@ class DoctorService {
       status: DoctorStatus.ok,
       name: 'bundle cache',
       detail: '$cachePath ($gems gems)',
+    );
+  }
+
+  DoctorEntry _checkAppRoot(CliProfile profile) {
+    final path = profile.appRootPath;
+    if (!Directory(path).existsSync()) {
+      return DoctorEntry(
+        status: DoctorStatus.error,
+        name: 'app root',
+        detail: '$path (does not exist).',
+      );
+    }
+    return DoctorEntry(
+      status: DoctorStatus.ok,
+      name: 'app root',
+      detail: path,
+    );
+  }
+
+  DoctorEntry _checkFastlaneDir(CliProfile profile) {
+    final path = profile.fastlaneDirectoryPath;
+    if (!Directory(path).existsSync()) {
+      return DoctorEntry(
+        status: DoctorStatus.warning,
+        name: 'fastlane dir',
+        detail: '$path (not found — lanes may fail).',
+      );
+    }
+    return DoctorEntry(
+      status: DoctorStatus.ok,
+      name: 'fastlane dir',
+      detail: path,
     );
   }
 
