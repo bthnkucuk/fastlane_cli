@@ -103,7 +103,12 @@ class _RunView extends StatefulComponent {
 }
 
 class _RunViewState extends State<_RunView> {
-  final ScrollController _logScrollController = ScrollController();
+  // AutoScrollController keeps the viewport pinned to the most recent log
+  // line as new content streams in. When the user scrolls up,
+  // `isAutoScrollEnabled` flips to false and stick disengages; scrolling
+  // back to the bottom re-engages it automatically (handled inside the
+  // controller's updateMetrics / scrollBy hooks).
+  final AutoScrollController _logScrollController = AutoScrollController();
   String? _copyFeedback;
   Timer? _copyFeedbackTimer;
 
@@ -152,7 +157,6 @@ class _RunViewState extends State<_RunView> {
     final env = component.coordinator.environment;
     final action = env.profile.actionsById[component.route.actionId];
     final run = _controller.session;
-    _autoStickToTail(run);
     final theme = TuiTheme.of(context);
 
     return Focusable(
@@ -282,19 +286,6 @@ class _RunViewState extends State<_RunView> {
         run.exitCode == null;
   }
 
-  /// Keeps the log viewport pinned to the most-recent entry as logs stream
-  /// in. We schedule the `ensureIndexVisible` call after the frame so the
-  /// ListView has laid out the new tail item before we ask the controller
-  /// to bring it into view.
-  void _autoStickToTail(RunSession run) {
-    if (run.logs.isEmpty) return;
-    final tailIndex = run.logs.length - 1;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _logScrollController.ensureIndexVisible(index: tailIndex);
-    });
-  }
-
   Component _logLine(RunLogEntry entry, TuiThemeData theme) {
     if (!logLineContainsAnsi(entry.message)) {
       return Text(
@@ -370,10 +361,14 @@ class _RunViewState extends State<_RunView> {
     required TuiThemeData theme,
   }) {
     final currentFile = run.activeFile;
-    final indeterminate = run.progressIndeterminate;
-    final progressValue = indeterminate
-        ? null
-        : (run.progressValue ?? 0).clamp(0.0, 1.0).toDouble();
+    // Stay indeterminate until fastlane emits a real, positive progress
+    // signal — otherwise the bar would render at 0% for the entire
+    // pre-parse window, which reads as "stuck".
+    final rawValue = run.progressValue;
+    final indeterminate =
+        run.progressIndeterminate || rawValue == null || rawValue <= 0;
+    final progressValue =
+        indeterminate ? null : rawValue.clamp(0.0, 1.0).toDouble();
     return Column(
       crossAxisAlignment: .start,
       children: <Component>[

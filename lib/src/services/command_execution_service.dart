@@ -152,6 +152,22 @@ class ProcessCommandExecutionService implements CommandExecutionService {
       CommandLogEvent(message: '[exec] pid=${process.pid}', isError: false),
     );
 
+    // Relay SIGINT (Ctrl+C) from the parent process to the spawned child so
+    // that interrupting the CLI also interrupts the underlying `bundle exec
+    // fastlane …` run. Without this, the child outlives the TUI on Ctrl+C
+    // and orphan processes accumulate. We skip on Windows where Dart cannot
+    // post signals to child processes.
+    StreamSubscription<ProcessSignal>? sigintSub;
+    if (!Platform.isWindows) {
+      sigintSub = ProcessSignal.sigint.watch().listen((_) {
+        try {
+          process.kill(ProcessSignal.sigint);
+        } catch (_) {
+          // Child may have already exited — nothing to do.
+        }
+      });
+    }
+
     unawaited(process.stdin.close());
 
     final stdoutDone = process.stdout
@@ -172,6 +188,7 @@ class ProcessCommandExecutionService implements CommandExecutionService {
 
     final exitCode = await process.exitCode;
     await Future.wait(<Future<void>>[stdoutDone, stderrDone]);
+    await sigintSub?.cancel();
     return CommandExecutionResult(exitCode: exitCode, wasDryRun: false);
   }
 }
