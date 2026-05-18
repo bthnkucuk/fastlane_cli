@@ -28,6 +28,14 @@ permissions:
   # Needed for softprops/action-gh-release to write to the Releases API.
   contents: write
 
+env:
+  # Opt every JavaScript action into Node.js 24 ahead of GitHub's forced
+  # rollout (June 2026). Removes the deprecation banner now and avoids
+  # surprises when older actions get auto-upgraded. The runner re-runs
+  # affected actions under Node 24 even if the action manifest still
+  # declares "node20".
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     name: Build ${{ matrix.os_label }}-${{ matrix.arch }}
@@ -49,7 +57,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # zenrouter_nocterm (git dep) declares `sdk: flutter` in its pubspec, so
       # `dart pub get` refuses to resolve without the Flutter toolchain on
@@ -170,7 +178,7 @@ jobs:
             > "checksums/${{ matrix.os_label }}-${{ matrix.arch }}.txt"
 
       - name: Upload tarball artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tarball-${{ matrix.os_label }}-${{ matrix.arch }}
           path: |
@@ -180,7 +188,7 @@ jobs:
           retention-days: 7
 
       - name: Upload checksum line artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: checksum-${{ matrix.os_label }}-${{ matrix.arch }}
           path: checksums/${{ matrix.os_label }}-${{ matrix.arch }}.txt
@@ -193,14 +201,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download tarball artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: tarball-*
           path: dist
           merge-multiple: true
 
       - name: Download checksum artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: checksum-*
           path: checksum-lines
