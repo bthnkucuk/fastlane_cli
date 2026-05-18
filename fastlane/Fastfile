@@ -18,12 +18,12 @@ private_lane :update_pubspec_version do |options|
 
   pubspec_path = FastlaneCliConfig.resolve_pubspec_path(options)
   pubspec_content = File.read(pubspec_path)
-  previous_match = pubspec_content.match(/^version:\s*([^\s#]+)/m)
+  previous_match = pubspec_content.match(/^\s*version:\s*([^\s#]+)(?:\s+#.*)?\s*$/)
   previous_version = previous_match ? previous_match[1].to_s.strip : "(yok)"
 
-  new_content = if pubspec_content =~ /^version:\s*\d+\.\d+\.\d+\+\d+/m
+  new_content = if pubspec_content =~ /^\s*version:\s*\d+\.\d+\.\d+\+\d+(?:\s+#.*)?\s*$/
                   pubspec_content.gsub(
-                    /^version:\s*\d+\.\d+\.\d+\+\d+/m,
+                    /^\s*version:\s*\d+\.\d+\.\d+\+\d+(?:\s+#.*)?\s*$/,
                     "version: #{full_version}"
                   )
                 else

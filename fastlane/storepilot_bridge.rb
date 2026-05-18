@@ -121,6 +121,12 @@ module StorePilotBridge
     app = Spaceship::ConnectAPI::App.get(app_id: app_id)
     raise BridgeError, "ASC app bulunamadi: #{app_id}" if app.nil?
 
+    # WHY: errors are appended as plain strings for now to preserve the JSON
+    # contract any future Dart consumer might rely on. A structured shape
+    # ({ code: e.class.name, message: e.message, source: locale }) would let
+    # callers distinguish auth-failure from missing-localization etc.;
+    # promote together with the Dart parser when that need arises.
+    # See: fastlane/spec/IMPROVEMENTS.md (🟡 "fetch_apple_metadata ... errors arrays").
     errors = []
 
     versions = app.get_app_store_versions(
@@ -255,6 +261,9 @@ module StorePilotBridge
     )
 
     client = supply_client_for(credential, package_name: package_name)
+    # WHY: errors are appended as plain strings — see matching comment in
+    # fetch_apple_metadata. Promote to { code, message, source } together
+    # with a Dart consumer change.
     errors = []
 
     description = nil
@@ -803,7 +812,7 @@ module StorePilotBridge
     return nil if pubspec_path.nil? || !File.file?(pubspec_path)
 
     content = File.read(pubspec_path)
-    match = content.match(/^\s*name:\s*([^\s#]+)\s*$/)
+    match = content.match(/^\s*name:\s*["']?([A-Za-z0-9_-]+)["']?\s*(?:#.*)?$/)
     match.nil? ? nil : match[1].to_s.strip
   rescue StandardError
     nil
@@ -872,7 +881,7 @@ module StorePilotBridge
     return empty_version_data unless File.file?(pubspec_path)
 
     content = File.read(pubspec_path)
-    match = content.match(/^\s*version:\s*([^\s#]+)\s*$/)
+    match = content.match(/^\s*version:\s*([^\s#]+)(?:\s+#.*)?\s*$/)
     return empty_version_data if match.nil?
 
     parse_combined_version(match[1].to_s.strip)
@@ -885,7 +894,7 @@ module StorePilotBridge
     raise BridgeError, "pubspec.yaml bulunamadi: #{pubspec_path}" unless File.file?(pubspec_path)
 
     content = File.read(pubspec_path)
-    match = content.match(/^\s*version:\s*([^\s#]+)\s*$/)
+    match = content.match(/^\s*version:\s*([^\s#]+)(?:\s+#.*)?\s*$/)
     raise BridgeError, "pubspec.yaml icinde version satiri bulunamadi." if match.nil?
 
     parsed = parse_combined_version(match[1].to_s.strip)
@@ -896,7 +905,7 @@ module StorePilotBridge
     next_build_number = build_number.to_i <= 0 ? 1 : build_number.to_i + 1
     next_combined = "#{version_name}+#{next_build_number}"
     updated_content = content.sub(
-      /^\s*version:\s*[^\s#]+\s*$/,
+      /^\s*version:\s*[^\s#]+(?:\s+#.*)?\s*$/,
       "version: #{next_combined}"
     )
 
@@ -907,6 +916,8 @@ module StorePilotBridge
       build_number: next_build_number.to_s,
       display_version: next_combined
     }
+  rescue BridgeError
+    raise
   rescue StandardError => e
     raise BridgeError, "Flutter version guncellenemedi: #{e.message}"
   end
@@ -976,23 +987,26 @@ module StorePilotBridge
   end
 
   def read_plist_value(plist_path, key)
-    _stdout, stderr, status = Open3.capture3(
-      "/usr/libexec/PlistBuddy",
-      "-c",
-      "Print :#{key}",
-      plist_path
-    )
-    return nil unless status.success?
+    stderr = nil
+    begin
+      _stdout, stderr, status = Open3.capture3(
+        "/usr/libexec/PlistBuddy",
+        "-c",
+        "Print :#{key}",
+        plist_path
+      )
+      return nil unless status.success?
 
-    value = _stdout.to_s.strip
-    return nil if value.empty? || value.start_with?("$(")
+      value = _stdout.to_s.strip
+      return nil if value.empty? || value.start_with?("$(")
 
-    value
-  rescue StandardError
-    error_message = stderr.to_s.strip
-    raise BridgeError, "Info.plist okunamadi (#{key}): #{error_message}" unless error_message.empty?
+      value
+    rescue StandardError
+      error_message = stderr.to_s.strip
+      return nil if error_message.empty?
 
-    nil
+      raise BridgeError, "Info.plist okunamadi (#{key}): #{error_message}"
+    end
   end
 
   def resolve_flutter_command(root_path, preferred_command: nil, allow_missing: false)

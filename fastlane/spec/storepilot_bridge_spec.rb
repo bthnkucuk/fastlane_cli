@@ -207,6 +207,44 @@ RSpec.describe StorePilotBridge do
         expect(body).to include("sdk:")
       end
     end
+
+    it "matches a version line with an inline `# comment`" do
+      Dir.mktmpdir do |tmp|
+        path = File.join(tmp, "pubspec.yaml")
+        File.write(path, "name: demo\nversion: 1.0.0+7 # bump for review\n")
+        result = described_class.bump_flutter_pubspec_build_number(tmp)
+        expect(result[:version_name]).to eq("1.0.0")
+        expect(result[:build_number]).to eq("8")
+        expect(result[:display_version]).to eq("1.0.0+8")
+        expect(File.read(path)).to include("version: 1.0.0+8")
+      end
+    end
+
+    it "matches a version line with no build number but an inline comment" do
+      Dir.mktmpdir do |tmp|
+        path = File.join(tmp, "pubspec.yaml")
+        File.write(path, "name: demo\nversion: 1.0.0 # no build number\n")
+        result = described_class.bump_flutter_pubspec_build_number(tmp)
+        expect(result[:version_name]).to eq("1.0.0")
+        expect(result[:build_number]).to eq("1")
+        expect(File.read(path)).to include("version: 1.0.0+1")
+      end
+    end
+
+    it "lets the inner BridgeError reach the caller without an outer prefix" do
+      Dir.mktmpdir do |tmp|
+        path = File.join(tmp, "pubspec.yaml")
+        File.write(path, "name: demo\n")
+        expect {
+          described_class.bump_flutter_pubspec_build_number(tmp)
+        }.to raise_error(StorePilotBridge::BridgeError) do |err|
+          # The inner message must reach the caller verbatim, without the
+          # "Flutter version guncellenemedi: " wrapper.
+          expect(err.message).to eq("pubspec.yaml icinde version satiri bulunamadi.")
+          expect(err.message).not_to include("Flutter version guncellenemedi")
+        end
+      end
+    end
   end
 
   describe ".read_flutter_pubspec_version" do
@@ -225,9 +263,27 @@ RSpec.describe StorePilotBridge do
       end
     end
 
-    # NOTE: inline comments on the version line are currently NOT parsed
-    # (regex `^\s*version:\s*([^\s#]+)\s*$` requires end-of-line after the
-    # value). Documented as a known limitation in spec/IMPROVEMENTS.md.
+    it "parses a version line with an inline `# comment`" do
+      Dir.mktmpdir do |tmp|
+        path = File.join(tmp, "pubspec.yaml")
+        File.write(path, "name: demo\nversion: 1.0.0+7 # bump for review\n")
+        out = described_class.read_flutter_pubspec_version(path)
+        expect(out[:version_name]).to eq("1.0.0")
+        expect(out[:build_number]).to eq("7")
+        expect(out[:display_version]).to eq("1.0.0+7")
+      end
+    end
+
+    it "parses a version line with no build number and a trailing comment" do
+      Dir.mktmpdir do |tmp|
+        path = File.join(tmp, "pubspec.yaml")
+        File.write(path, "name: demo\nversion: 1.0.0 # no build number\n")
+        out = described_class.read_flutter_pubspec_version(path)
+        expect(out[:version_name]).to eq("1.0.0")
+        expect(out[:build_number]).to be_nil
+        expect(out[:display_version]).to eq("1.0.0")
+      end
+    end
   end
 
   describe ".read_pubspec_app_name" do
@@ -239,6 +295,30 @@ RSpec.describe StorePilotBridge do
       Dir.mktmpdir do |tmp|
         path = File.join(tmp, "pubspec.yaml")
         File.write(path, "name: example_app\nversion: 1.0.0+1\n")
+        expect(described_class.read_pubspec_app_name(path)).to eq("example_app")
+      end
+    end
+
+    it "extracts a double-quoted name" do
+      Dir.mktmpdir do |tmp|
+        path = File.join(tmp, "pubspec.yaml")
+        File.write(path, %(name: "my_app"\nversion: 1.0.0+1\n))
+        expect(described_class.read_pubspec_app_name(path)).to eq("my_app")
+      end
+    end
+
+    it "extracts a single-quoted name" do
+      Dir.mktmpdir do |tmp|
+        path = File.join(tmp, "pubspec.yaml")
+        File.write(path, "name: 'my-app'\nversion: 1.0.0+1\n")
+        expect(described_class.read_pubspec_app_name(path)).to eq("my-app")
+      end
+    end
+
+    it "extracts a name with a trailing inline comment" do
+      Dir.mktmpdir do |tmp|
+        path = File.join(tmp, "pubspec.yaml")
+        File.write(path, "name: example_app # internal slug\nversion: 1.0.0+1\n")
         expect(described_class.read_pubspec_app_name(path)).to eq("example_app")
       end
     end
@@ -623,6 +703,35 @@ RSpec.describe StorePilotBridge do
       ensure
         ENV["PATH"] = original
       end
+    end
+  end
+
+  describe ".read_plist_value" do
+    it "does not raise NameError when Open3.capture3 itself raises" do
+      # If Open3 raises BEFORE the multiple-assignment binds `stderr`, the
+      # rescue must not reference an unbound local. Prior implementation
+      # raised `NameError: undefined local variable or method 'stderr'`
+      # in this scenario, masking the original error.
+      allow(Open3).to receive(:capture3).and_raise(Errno::ENOENT)
+      expect {
+        described_class.read_plist_value("/tmp/whatever.plist", "CFBundleVersion")
+      }.not_to raise_error
+      expect(described_class.read_plist_value("/tmp/whatever.plist", "CFBundleVersion"))
+        .to be_nil
+    end
+
+    it "returns nil when PlistBuddy exits non-zero" do
+      fake_status = instance_double(Process::Status, success?: false)
+      allow(Open3).to receive(:capture3).and_return(["", "Does Not Exist", fake_status])
+      expect(described_class.read_plist_value("/tmp/whatever.plist", "Missing"))
+        .to be_nil
+    end
+
+    it "returns the trimmed stdout when PlistBuddy succeeds" do
+      fake_status = instance_double(Process::Status, success?: true)
+      allow(Open3).to receive(:capture3).and_return(["1.4.2\n", "", fake_status])
+      expect(described_class.read_plist_value("/tmp/whatever.plist", "CFBundleShortVersionString"))
+        .to eq("1.4.2")
     end
   end
 
