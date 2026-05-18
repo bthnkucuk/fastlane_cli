@@ -1,6 +1,14 @@
 library;
 
 export 'src/bootstrap/fastlane_cli_launcher.dart';
+export 'src/cli/completion_command.dart';
+export 'src/cli/doctor_command.dart';
+export 'src/cli/fastlane_cli_runner.dart';
+export 'src/cli/init_command.dart';
+export 'src/cli/list_command.dart';
+export 'src/cli/profile_resolver.dart';
+export 'src/cli/run_command.dart';
+export 'src/cli/skills_install_command.dart';
 export 'src/localization/locale_code.dart';
 export 'src/model/cli_action.dart';
 export 'src/model/cli_category.dart';

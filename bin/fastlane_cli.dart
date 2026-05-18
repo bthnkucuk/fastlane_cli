@@ -1,10 +1,9 @@
 import 'dart:io';
 
-import 'package:fastlane_cli/fastlane_cli.dart';
+import 'package:fastlane_cli/src/cli/fastlane_cli_runner.dart';
 
 Future<void> main(List<String> arguments) async {
-  final launcher = FastlaneCliLauncher();
-  final code = await launcher.run(arguments);
+  final code = await FastlaneCliRunner().run(arguments);
   if (code != 0) {
     exitCode = code;
   }
