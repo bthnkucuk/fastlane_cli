@@ -164,7 +164,8 @@ const completionSpec: Fig.Spec = {
     },
     {
       name: "init",
-      description: "Scaffold a minimal cli_profile.yaml in the current directory",
+      description:
+        "Scaffold a minimal cli_profile.yaml in the current directory",
       options: [
         {
           name: "--app-name",
