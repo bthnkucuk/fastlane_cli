@@ -161,16 +161,44 @@ user-cache location (`~/Library/Caches/fastlane_cli/bundle/<ruby>`). See
 | Item | Status |
 |---|---|
 | Standalone repo extracted | ✅ |
-| `git init` + local `main` | ✅ |
-| GitHub remote | ⏳ user will create |
-| LICENSE | ⏳ pending (Apache-2.0 vs MIT) |
-| Runner asset auto-resolve | ⏳ pending — see ROADMAP §1 |
-| Vendor bundle → user cache | ⏳ pending — see ROADMAP §2 |
-| GH Actions release matrix | ⏳ pending — see ROADMAP §3 |
-| `homebrew-fastlane_cli` tap | ⏳ pending — see ROADMAP §4 |
-| Public README | ⏳ pending — see ROADMAP §5 |
+| Public GitHub repo | ✅ `bthnkucuk/fastlane_cli` |
+| LICENSE | ✅ MIT |
+| Runner asset auto-resolve | ✅ Track A1 |
+| Bundle cache + doctor first-run hook | ✅ Tracks B1+B2 |
+| GH Actions release matrix | ✅ Track D1 |
+| `homebrew-fastlane_cli` tap | ✅ `bthnkucuk/homebrew-fastlane_cli` |
+| Public README | ✅ Track F1 |
 
 Detailed task breakdown in [ROADMAP.md](ROADMAP.md).
+
+---
+
+## 6.1 Contributing — PR flow (mandatory)
+
+`main` is protected. Direct pushes to `main` are blocked for the following
+reasons:
+
+- **Required status checks**: `Analyze + Test`, `Ruby specs (ruby 3.2)`,
+  `Ruby specs (ruby 3.3)`, `Ruby specs (ruby 3.4)`.
+- **No force pushes**, no deletions, required conversation resolution.
+- `enforce_admins: false`, so the maintainer can admin-merge in an
+  emergency — but every regular change goes through the same CI gate.
+
+Every change — human or sub-agent — opens a PR:
+
+```sh
+git checkout -b <feature-branch>
+# ... edits ...
+git push -u origin <feature-branch>
+gh pr create --base main --title "..." --body "..."
+# wait for CI green, then:
+gh pr merge --squash --delete-branch
+```
+
+Sub-agents working in `isolation: worktree` push their worktree branch to
+origin and open a PR; the supervisor (Claude main) reviews + merges after
+CI lands. The supervisor does NOT copy worktree files into the
+maintainer's working tree — that path is closed by branch protection.
 
 ---
 
