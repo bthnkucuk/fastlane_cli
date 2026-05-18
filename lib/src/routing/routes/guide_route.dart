@@ -1,0 +1,110 @@
+import 'package:nocterm/nocterm.dart';
+
+import '../../localization/app_texts.dart';
+import '../../localization/locale_code.dart';
+import '../../model/guide_topic.dart';
+import '../../ui/components/shell_scaffold.dart';
+import '../app_route.dart';
+import '../coordinator.dart';
+import '../shell_layout.dart';
+import 'home_route.dart';
+
+final class GuideRoute extends AppRoute {
+  GuideRoute({required this.topicId, this.retryActionId});
+
+  final String topicId;
+  final String? retryActionId;
+
+  @override
+  List<Object?> get props => [topicId, retryActionId];
+
+  @override
+  Type get layout => ShellLayout;
+
+  @override
+  Uri toUri() => Uri(
+    path: '/guides/$topicId',
+    queryParameters: retryActionId == null ? null : {'action': retryActionId!},
+  );
+
+  @override
+  Component build(FastlaneCliCoordinator c, BuildContext context) {
+    return _GuideView(
+      coordinator: c,
+      topicId: topicId,
+      retryActionId: retryActionId,
+    );
+  }
+}
+
+class _GuideView extends StatelessComponent {
+  const _GuideView({
+    required this.coordinator,
+    required this.topicId,
+    required this.retryActionId,
+  });
+
+  final FastlaneCliCoordinator coordinator;
+  final String topicId;
+  final String? retryActionId;
+
+  @override
+  Component build(BuildContext context) {
+    final env = coordinator.environment;
+    final texts = AppTexts(env.locale);
+    final guide = env.guideRegistry.topicById(
+      topicId: topicId,
+      profile: env.profile,
+    );
+
+    return Focusable(
+      focused: !coordinator.palettePath.expanded,
+      onKeyEvent: _onKeyEvent,
+      child: ShellScaffold(
+        pageTitle: guide?.titleFor(env.locale) ?? texts.guidesTitle,
+        subtitle: guide?.summaryFor(env.locale) ?? texts.guideFallback,
+        body: _buildBody(env.locale, texts, guide),
+      ),
+    );
+  }
+
+  Component _buildBody(LocaleCode locale, AppTexts texts, GuideTopic? guide) {
+    final items = <Component>[];
+    if (guide == null) {
+      items.add(Text(texts.guideFallback));
+    } else {
+      for (final line in guide.checklistFor(locale)) {
+        items.add(Text('- $line'));
+      }
+      items.add(const SizedBox(height: 1));
+      for (final path in guide.pathsFor(locale)) {
+        items.add(Text(path));
+      }
+    }
+
+    if (retryActionId != null && retryActionId!.isNotEmpty) {
+      items.add(const SizedBox(height: 1));
+      items.add(Text('${texts.guideRetry} ($retryActionId)'));
+    }
+    items.add(const SizedBox(height: 1));
+    items.add(Text(texts.back));
+
+    return Column(crossAxisAlignment: .start, children: items);
+  }
+
+  bool _onKeyEvent(KeyboardEvent event) {
+    if (event.logicalKey == LogicalKey.backspace ||
+        event.logicalKey == LogicalKey.escape ||
+        event.logicalKey == LogicalKey.keyB) {
+      coordinator.replace(HomeRoute());
+      return true;
+    }
+    if (event.logicalKey == LogicalKey.keyR &&
+        retryActionId != null &&
+        retryActionId!.isNotEmpty) {
+      coordinator.requestRun(retryActionId!);
+      return true;
+    }
+    return false;
+  }
+}

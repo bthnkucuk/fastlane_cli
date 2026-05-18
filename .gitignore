@@ -1,0 +1,25 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+pubspec.lock
+doc/api/
+
+# Coverage
+coverage/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+
+# Fastlane (bundle install output — user-cache once brew install lands)
+fastlane/vendor/
+fastlane/.bundle/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/

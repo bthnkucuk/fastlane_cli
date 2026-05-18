@@ -1,0 +1,456 @@
+# Shared Fastlane CLI profile defaults. Per-app cli_profile.yaml files are
+# merged on top of this base — they only need to declare app-specific fields
+# (name, root_path, identifiers) and any overrides for actions.
+#
+# Merge rules (see ProfileLoader):
+#   - `app`: deep merge, app wins per key.
+#   - `default_locale` / scalars: app wins if set.
+#   - `supported_locales` / `shortcuts`: app wins (full replacement) if set,
+#     otherwise inherited from base.
+#   - `categories` / `actions`: merged by `id` — base provides defaults; app
+#     entries with the same id replace the base entry; new ids append.
+
+default_locale: tr
+supported_locales:
+  - tr
+  - en
+
+shortcuts:
+  - internal_test
+  - android_internal_bump_deploy
+  - ios_internal_bump_deploy
+  - android_internal_testing
+  - ios_test_flight
+  - android_version_status
+  - android_update_metadata
+  - ios_update_metadata
+  - android_download_store_listing
+  - ios_download_metadata
+
+categories:
+  - id: general
+    title:
+      tr: Genel
+      en: General
+    description:
+      tr: Sık kullanılan genel lane'ler
+      en: Frequently used shared lanes
+    actions:
+      - internal_test
+      - get_version_data
+      - flutter_test
+  - id: android
+    title:
+      tr: Android
+      en: Android
+    description:
+      tr: Google Play ve Android lane'leri
+      en: Google Play and Android lanes
+    actions:
+      - android_internal_bump_deploy
+      - android_internal_no_bump_deploy
+      - android_internal_testing
+      - android_production
+      - android_version_status
+      - android_update_metadata
+      - android_update_metadata_only
+      - android_download_store_listing
+      - android_google_play_help
+  - id: ios
+    title:
+      tr: iOS
+      en: iOS
+    description:
+      tr: TestFlight ve App Store lane'leri
+      en: TestFlight and App Store lanes
+    actions:
+      - ios_internal_bump_deploy
+      - ios_internal_no_bump_deploy
+      - ios_test_flight
+      - ios_deploy_testflight
+      - ios_app_store
+      - ios_deploy_appstore
+      - ios_update_metadata
+      - ios_download_metadata
+      - ios_download_screenshots
+      - ios_upload_promotional_metadata
+      - ios_upload_app_privacy
+      - ios_download_app_privacy
+
+actions:
+  - id: internal_test
+    category: general
+    title:
+      tr: Internal test (versiyon + build)
+      en: Internal test (version + build)
+    description:
+      tr: Versiyon artırır ve seçilen platformlara dağıtım hazırlar
+      en: Bumps version and prepares selected platform deploys
+    shortcut: true
+    command:
+      type: fastlane
+      lane: internal_test
+
+  - id: get_version_data
+    category: general
+    title:
+      tr: Version data
+      en: Version data
+    description:
+      tr: Android + iOS sürüm/build bilgisini getirir
+      en: Fetches Android + iOS version/build data
+    command:
+      type: fastlane
+      lane: get_version_data
+
+  - id: flutter_test
+    category: general
+    title:
+      tr: Flutter test
+      en: Flutter test
+    description:
+      tr: fvm flutter test çalıştırır
+      en: Runs fvm flutter test
+    command:
+      type: flutter
+      args:
+        - test
+
+  - id: android_internal_bump_deploy
+    category: android
+    title:
+      tr: Android Internal — versiyon artır + dağıt
+      en: Android Internal — bump version + deploy
+    description:
+      tr: pubspec versiyonunu (patch + build) artırır, AAB build edip Play internal
+        track'e yükler
+      en: Bumps pubspec version (patch + build), builds AAB and uploads to Play
+        internal track
+    requires_confirmation: true
+    shortcut: true
+    command:
+      type: fastlane
+      lane: internal_test
+      options:
+        platform: android
+
+  - id: android_internal_no_bump_deploy
+    category: android
+    title:
+      tr: Android Internal — sadece dağıt (bump yok)
+      en: Android Internal — deploy only (no bump)
+    description:
+      tr: Mevcut pubspec versiyonu ile AAB build edip Play internal track'e yükler,
+        versiyon artırmaz
+      en: Builds AAB with current pubspec version and uploads to Play internal — no
+        version bump
+    command:
+      type: fastlane
+      lane: internal_test
+      options:
+        platform: android
+        skip_bump: "true"
+
+  - id: android_internal_testing
+    category: android
+    title:
+      tr: Android internal testing
+      en: Android internal testing
+    description:
+      tr: Google Play internal track'e yükler
+      en: Uploads to Google Play internal track
+    shortcut: true
+    command:
+      type: fastlane
+      platform: android
+      lane: internal_testing
+
+  - id: android_production
+    category: android
+    title:
+      tr: Android production
+      en: Android production
+    description:
+      tr: Google Play production lane (onaylı)
+      en: Google Play production lane (confirmed)
+    requires_confirmation: true
+    command:
+      type: fastlane
+      platform: android
+      lane: production
+
+  - id: android_version_status
+    category: android
+    title:
+      tr: Android version status
+      en: Android version status
+    description:
+      tr: Pubspec ve Play Console sürüm kıyasını gösterir
+      en: Shows pubspec and Play Console version details
+    shortcut: true
+    command:
+      type: fastlane
+      platform: android
+      lane: version_status
+
+  - id: android_update_metadata
+    category: android
+    title:
+      tr: Android metadata upload
+      en: Android metadata upload
+    description:
+      tr: Play Store metadata/screenshot günceller
+      en: Updates Play Store metadata/screenshots
+    shortcut: true
+    preflight:
+      - android_metadata
+    command:
+      type: fastlane
+      platform: android
+      lane: update_metadata
+      options:
+        track: alpha
+        include_images: "true"
+        include_screenshots: "true"
+        include_changelogs: "true"
+
+  - id: android_update_metadata_only
+    category: android
+    title:
+      tr: Android metadata only (screenshot yok)
+      en: Android metadata only (no screenshots)
+    description:
+      tr: Sadece metin metadata'sını yükler — screenshot/image/changelog atlanır
+      en: Uploads only text metadata — screenshots/images/changelogs are skipped
+    preflight:
+      - android_metadata_text_only
+    command:
+      type: fastlane
+      platform: android
+      lane: update_metadata
+      options:
+        track: alpha
+        include_images: "false"
+        include_screenshots: "false"
+        include_changelogs: "false"
+
+  - id: android_download_store_listing
+    category: android
+    title:
+      tr: Android listing indir
+      en: Download Android listing
+    description:
+      tr: Play Store metadata/screenshot/changelog dosyalarını indirir
+      en: Downloads Play Store metadata/screenshot/changelog files
+    shortcut: true
+    requires_overwrite_confirmation: true
+    command:
+      type: fastlane
+      platform: android
+      lane: download_store_listing
+      options:
+        track: internal
+
+  - id: android_google_play_help
+    category: android
+    title:
+      tr: Google Play help
+      en: Google Play help
+    description:
+      tr: Play Console hata çözüm önerilerini gösterir
+      en: Shows Play Console troubleshooting info
+    command:
+      type: fastlane
+      platform: android
+      lane: google_play_help
+
+  - id: ios_internal_bump_deploy
+    category: ios
+    title:
+      tr: iOS Internal — versiyon artır + dağıt
+      en: iOS Internal — bump version + deploy
+    description:
+      tr: pubspec versiyonunu (patch + build) artırır, IPA build edip TestFlight'a
+        yükler
+      en: Bumps pubspec version (patch + build), builds IPA and uploads to TestFlight
+    requires_confirmation: true
+    shortcut: true
+    command:
+      type: fastlane
+      lane: internal_test
+      options:
+        platform: ios
+
+  - id: ios_internal_no_bump_deploy
+    category: ios
+    title:
+      tr: iOS Internal — sadece dağıt (bump yok)
+      en: iOS Internal — deploy only (no bump)
+    description:
+      tr: Mevcut pubspec versiyonu ile IPA build edip TestFlight'a yükler, versiyon
+        artırmaz
+      en: Builds IPA with current pubspec version and uploads to TestFlight — no
+        version bump
+    command:
+      type: fastlane
+      lane: internal_test
+      options:
+        platform: ios
+        skip_bump: "true"
+
+  - id: ios_test_flight
+    category: ios
+    title:
+      tr: iOS TestFlight
+      en: iOS TestFlight
+    description:
+      tr: TestFlight yükleme lane'i
+      en: TestFlight upload lane
+    shortcut: true
+    command:
+      type: fastlane
+      platform: ios
+      lane: test_flight
+
+  - id: ios_deploy_testflight
+    category: ios
+    title:
+      tr: iOS deploy_testflight (alias)
+      en: iOS deploy_testflight (alias)
+    description:
+      tr: Geriye dönük alias lane
+      en: Backward compatible alias lane
+    command:
+      type: fastlane
+      platform: ios
+      lane: deploy_testflight
+
+  - id: ios_app_store
+    category: ios
+    title:
+      tr: iOS App Store
+      en: iOS App Store
+    description:
+      tr: App Store Connect upload lane (onaylı)
+      en: App Store Connect upload lane (confirmed)
+    requires_confirmation: true
+    preflight:
+      - ios_metadata
+    command:
+      type: fastlane
+      platform: ios
+      lane: app_store
+      options:
+        skip_metadata: "false"
+        skip_screenshots: "false"
+
+  - id: ios_deploy_appstore
+    category: ios
+    title:
+      tr: iOS deploy_appstore (alias)
+      en: iOS deploy_appstore (alias)
+    description:
+      tr: Geriye dönük alias lane (onaylı)
+      en: Backward compatible alias lane (confirmed)
+    requires_confirmation: true
+    preflight:
+      - ios_metadata
+    command:
+      type: fastlane
+      platform: ios
+      lane: deploy_appstore
+      options:
+        skip_metadata: "false"
+        skip_screenshots: "false"
+
+  - id: ios_update_metadata
+    category: ios
+    title:
+      tr: iOS metadata upload
+      en: iOS metadata upload
+    description:
+      tr: App Store metadata/screenshot günceller
+      en: Updates App Store metadata/screenshots
+    shortcut: true
+    preflight:
+      - ios_metadata
+    command:
+      type: fastlane
+      platform: ios
+      lane: update_metadata
+      options:
+        include_screenshots: "true"
+
+  - id: ios_download_metadata
+    category: ios
+    title:
+      tr: iOS metadata indir
+      en: Download iOS metadata
+    description:
+      tr: App Store metadata/release notes dosyalarını indirir
+      en: Downloads App Store metadata/release notes files
+    shortcut: true
+    requires_overwrite_confirmation: true
+    command:
+      type: fastlane
+      platform: ios
+      lane: download_metadata
+
+  - id: ios_download_screenshots
+    category: ios
+    title:
+      tr: iOS screenshot indir
+      en: Download iOS screenshots
+    description:
+      tr: App Store screenshotlarını fastlane dizinine indirir
+      en: Downloads App Store screenshots into fastlane folders
+    requires_overwrite_confirmation: true
+    command:
+      type: fastlane
+      platform: ios
+      lane: download_screenshots
+
+  - id: ios_upload_promotional_metadata
+    category: ios
+    title:
+      tr: iOS promotional metadata
+      en: iOS promotional metadata
+    description:
+      tr: Promotion/What's New metadata upload
+      en: Promotion/What's New metadata upload
+    preflight:
+      - ios_metadata
+    command:
+      type: fastlane
+      platform: ios
+      lane: upload_metadata_promotion_whats_news
+      options:
+        include_screenshots: "false"
+
+  - id: ios_upload_app_privacy
+    category: ios
+    title:
+      tr: iOS App Privacy yükle
+      en: iOS App Privacy upload
+    description:
+      tr: App Privacy nutrition label JSON'unu App Store Connect'e yükler
+      en: Uploads the App Privacy nutrition label JSON to App Store Connect
+    shortcut: true
+    command:
+      type: fastlane
+      platform: ios
+      lane: upload_app_privacy_details
+
+  - id: ios_download_app_privacy
+    category: ios
+    title:
+      tr: iOS App Privacy indir
+      en: Download iOS App Privacy
+    description:
+      tr: App Store Connect'teki güncel App Privacy JSON'unu indirir
+      en: Downloads the current App Privacy JSON from App Store Connect
+    requires_overwrite_confirmation: true
+    command:
+      type: fastlane
+      platform: ios
+      lane: download_app_privacy_details

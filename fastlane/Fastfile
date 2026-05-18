@@ -1,0 +1,315 @@
+# Generic fastlane lanes for Fastlane CLI package.
+# App-specific repos should import this file from their own fastlane/Fastfile.
+
+require "fileutils"
+require "shellwords"
+require_relative "./common_helpers"
+
+default_platform(:android)
+
+import File.expand_path("android/Fastfile", __dir__)
+import File.expand_path("ios/Fastfile", __dir__)
+
+private_lane :update_pubspec_version do |options|
+  full_version = options[:full_version].to_s.strip
+  unless full_version =~ /^(\d+)\.(\d+)\.(\d+)\+(\d+)$/
+    UI.user_error!("full_version must be x.y.z+build (example: 2.49.5+269)")
+  end
+
+  pubspec_path = FastlaneCliConfig.resolve_pubspec_path(options)
+  pubspec_content = File.read(pubspec_path)
+  previous_match = pubspec_content.match(/^version:\s*([^\s#]+)/m)
+  previous_version = previous_match ? previous_match[1].to_s.strip : "(yok)"
+
+  new_content = if pubspec_content =~ /^version:\s*\d+\.\d+\.\d+\+\d+/m
+                  pubspec_content.gsub(
+                    /^version:\s*\d+\.\d+\.\d+\+\d+/m,
+                    "version: #{full_version}"
+                  )
+                else
+                  "version: #{full_version}\n#{pubspec_content}"
+                end
+
+  File.write(pubspec_path, new_content)
+  UI.success("📝 Updated pubspec.yaml version to #{full_version}")
+
+  FastlaneCliConfig.print_summary_box(
+    "Pubspec versiyon güncellendi",
+    [
+      "Dosya     : #{pubspec_path}",
+      "Önceki    : #{previous_version}",
+      "Yeni      : #{full_version}",
+      "Kural     : caller'dan gelen full_version (#{full_version}) doğrudan yazıldı.",
+      "Yazım     : 'version: X.Y.Z+N' satırı regex ile değiştirildi (yoksa dosyanın başına eklendi)."
+    ]
+  )
+end
+
+desc "Get Android + iOS versions and return version|build"
+lane :get_version_data do |options|
+  android_tokens = FastlaneCliConfig.fastlane_option_tokens(
+    options,
+    allowed_keys: %i[flavor package_name app_identifier track pubspec_path]
+  )
+  ios_tokens = FastlaneCliConfig.fastlane_option_tokens(
+    options,
+    allowed_keys: %i[flavor app_identifier bundle_identifier pubspec_path]
+  )
+
+  android_raw = ""
+  begin
+    android_raw = sh(
+      FastlaneCliConfig.in_runner_root(
+        FastlaneCliConfig.shell_join(
+          ["bundle exec fastlane android get_android_version_data", *android_tokens]
+        ),
+        options
+      )
+    ).to_s
+  rescue => e
+    UI.important("⚠️ Android version fetch failed: #{e.message}. Fallback unknown|0")
+    android_raw = "[VERSION_DATA] unknown|0"
+  end
+
+  ios_raw = ""
+  begin
+    ios_raw = sh(
+      FastlaneCliConfig.in_runner_root(
+        FastlaneCliConfig.shell_join(
+          ["bundle exec fastlane ios get_ios_version_data", *ios_tokens]
+        ),
+        options
+      )
+    ).to_s
+  rescue => e
+    UI.important("⚠️ iOS version fetch failed: #{e.message}. Fallback unknown|0")
+    ios_raw = "[VERSION_DATA] unknown|0"
+  end
+
+  android_line = android_raw
+    .split("\n")
+    .select { |line| line.include?("[VERSION_DATA]") }
+    .last
+    .to_s
+    .gsub(/.*\[VERSION_DATA\]\s*/, "")
+    .strip
+
+  ios_line = ios_raw
+    .split("\n")
+    .select { |line| line.include?("[VERSION_DATA]") }
+    .last
+    .to_s
+    .gsub(/.*\[VERSION_DATA\]\s*/, "")
+    .strip
+
+  a_version, a_build = android_line.split("|", 2)
+  i_version, i_build = ios_line.split("|", 2)
+
+  semver_regex = /^\d+\.\d+\.\d+$/
+  pubspec_version = "0.0.0"
+  pubspec_build = 0
+  begin
+    pubspec_path = FastlaneCliConfig.resolve_pubspec_path(options)
+    if File.exist?(pubspec_path)
+      content = File.read(pubspec_path)
+      if content =~ /^version:\s*(\d+\.\d+\.\d+)\+(\d+)/m
+        pubspec_version = Regexp.last_match(1)
+        pubspec_build = Regexp.last_match(2).to_i
+      end
+    end
+  rescue => e
+    UI.important("⚠️ Could not read pubspec for fallback version: #{e.message}")
+  end
+
+  semver_key = ->(name) { name.to_s.split(".").map(&:to_i) }
+
+  candidate_versions = [a_version, i_version, pubspec_version]
+                         .map { |v| v.to_s.strip }
+                         .select { |v| v =~ semver_regex }
+                         .uniq
+
+  selected_version = candidate_versions.sort_by(&semver_key).last
+  selected_version = pubspec_version if selected_version.to_s.strip.empty?
+  selected_version = "0.0.0" if selected_version.to_s.strip.empty?
+
+  selected_build = [a_build.to_i, i_build.to_i, pubspec_build].max
+  final_output = "#{selected_version}|#{selected_build}"
+
+  app_name = "(unknown)"
+  begin
+    if defined?(pubspec_path) && pubspec_path && File.exist?(pubspec_path)
+      pubspec_content_for_name = File.read(pubspec_path)
+      name_match = pubspec_content_for_name.match(/^\s*name:\s*([^\s#]+)\s*$/)
+      app_name = name_match[1].to_s.strip if name_match
+    end
+  rescue => _e
+    app_name = "(unknown)"
+  end
+  flavor_label = options[:flavor].to_s.strip
+  flavor_label = "(none)" if flavor_label.empty?
+
+  selected_source = if a_version.to_s == selected_version && a_build.to_i == selected_build
+                      "Android (Play Store)"
+                    elsif i_version.to_s == selected_version && i_build.to_i == selected_build
+                      "iOS (App Store Connect)"
+                    elsif pubspec_version.to_s == selected_version && pubspec_build == selected_build
+                      "pubspec.yaml"
+                    else
+                      "max(android, ios, pubspec)"
+                    end
+
+  FastlaneCliConfig.print_summary_box(
+    "Version data",
+    [
+      "App     : #{app_name}",
+      "Flavor  : #{flavor_label}",
+      "Pubspec : #{pubspec_path || '(bulunamadı)'}",
+      :sep,
+      "Android (Play / supply)        version=#{a_version || '-'}  build=#{a_build || '-'}",
+      "  ↳ Kaynak: lane 'android get_android_version_data' → [VERSION_DATA]",
+      "iOS (App Store / Spaceship)    version=#{i_version || '-'}  build=#{i_build || '-'}",
+      "  ↳ Kaynak: lane 'ios get_ios_version_data' → [VERSION_DATA]",
+      "Pubspec (yerel)                version=#{pubspec_version}  build=#{pubspec_build}",
+      "  ↳ Kaynak: #{pubspec_path || '(bulunamadı)'}",
+      :sep,
+      "Seçilen      : #{selected_version}+#{selected_build}",
+      "Belirleyici  : #{selected_source}",
+      "Kural        : versionName = max semver, buildNumber = max(android, ios, pubspec)"
+    ]
+  )
+
+  puts final_output
+  puts "[VERSION_DATA] #{final_output}"
+  final_output
+end
+
+desc "Bump app version and trigger platform lanes"
+lane :internal_test do |options|
+  bump = (options[:bump] || "patch").to_s.downcase
+  bump = "patch" unless %w[major minor patch].include?(bump)
+
+  platform = (options[:platform] || "both").to_s.downcase
+  run_ios = platform.include?("ios") || platform == "both"
+  run_android = platform.include?("android") || platform == "both"
+  UI.user_error!("platform must include android or ios") unless run_ios || run_android
+
+  skip_bump = FastlaneCliConfig.bool_option(options, :skip_bump, default: false)
+
+  if skip_bump
+    UI.message("⏭ skip_bump set — using existing pubspec version, no bump.")
+  else
+    full_version = options[:full_version].to_s.strip
+    if full_version.empty?
+      base_version, base_build = get_version_data(options).to_s.strip.split("|", 2)
+      major, minor, patch = (base_version.to_s.split(".").map(&:to_i) + [0, 0, 0])[0, 3]
+      build_number = base_build.to_i + 1
+
+      case bump
+      when "major"
+        major += 1
+        minor = 0
+        patch = 0
+      when "minor"
+        minor += 1
+        patch = 0
+      else
+        patch += 1
+      end
+
+      full_version = "#{major}.#{minor}.#{patch}+#{build_number}"
+    end
+
+    update_pubspec_version(options.merge(full_version: full_version))
+  end
+
+  flutter_cmd = FastlaneCliConfig.flutter_command(options)
+  run_clean = FastlaneCliConfig.bool_option(options, :run_clean, default: true)
+  run_pub_get = FastlaneCliConfig.bool_option(options, :run_pub_get, default: true)
+  # `flutter clean` triggers `xcodebuild clean` per SwiftPM scheme — Firebase iOS SDK
+  # makes this take 5+ minutes. Reproducing it by hand is ~5 seconds. See fastlane_cli/README.md.
+  fast_clean_cmd = "rm -rf build .dart_tool .flutter-plugins-dependencies " \
+                   "ios/Pods ios/.symlinks " \
+                   "ios/Flutter/ephemeral ios/Flutter/Flutter.framework " \
+                   "ios/Flutter/Flutter.podspec ios/Flutter/Generated.xcconfig " \
+                   "ios/Flutter/flutter_export_environment.sh"
+  sh(FastlaneCliConfig.in_app_root(fast_clean_cmd, options)) if run_clean
+  sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options)) if run_pub_get
+
+  if run_android
+    android_tokens = FastlaneCliConfig.fastlane_option_tokens(options)
+    sh(
+      FastlaneCliConfig.in_runner_root(
+        FastlaneCliConfig.shell_join(
+          ["bundle exec fastlane android internal_testing", *android_tokens]
+        ),
+        options
+      )
+    )
+  end
+
+  if run_ios
+    build_ios = FastlaneCliConfig.bool_option(options, :build_ios, default: true)
+    if build_ios
+      target = FastlaneCliConfig.flutter_target(options)
+      flavor = FastlaneCliConfig.resolve_flavor(options)
+
+      build_parts = ["#{flutter_cmd} build ipa --release"]
+      build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
+      build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+      sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+    end
+
+    ios_tokens = FastlaneCliConfig.fastlane_option_tokens(options)
+    sh(
+      FastlaneCliConfig.in_runner_root(
+        FastlaneCliConfig.shell_join(
+          ["bundle exec fastlane ios test_flight", *ios_tokens]
+        ),
+        options
+      )
+    )
+  end
+
+  FastlaneCliConfig.print_summary_box(
+    "Internal test tamamlandı",
+    [
+      "Versiyon       : #{(defined?(full_version) && !full_version.to_s.empty?) ? full_version : '(skip_bump → mevcut)'}",
+      "Bump tipi      : #{bump}",
+      "Platform       : #{platform}",
+      "Flutter komutu : #{flutter_cmd}",
+      "Adımlar        : clean=#{run_clean}  pub_get=#{run_pub_get}",
+      :sep,
+      "Android        : #{run_android ? 'android internal_testing tetiklendi' : 'atlandı'}",
+      "iOS            : #{run_ios ? 'ios test_flight tetiklendi' : 'atlandı'}"
+    ]
+  )
+end
+
+desc "Build and distribute to Firebase App Distribution"
+lane :firebase_distribute do |options|
+  target_platform = (options[:platform] || "android").to_s.downcase
+  tokens = FastlaneCliConfig.fastlane_option_tokens(options)
+
+  case target_platform
+  when "android"
+    sh(
+      FastlaneCliConfig.in_runner_root(
+        FastlaneCliConfig.shell_join(
+          ["bundle exec fastlane android firebase_distribute", *tokens]
+        ),
+        options
+      )
+    )
+  when "ios"
+    sh(
+      FastlaneCliConfig.in_runner_root(
+        FastlaneCliConfig.shell_join(
+          ["bundle exec fastlane ios firebase_distribute", *tokens]
+        ),
+        options
+      )
+    )
+  else
+    UI.user_error!("Unsupported platform: #{target_platform}")
+  end
+end

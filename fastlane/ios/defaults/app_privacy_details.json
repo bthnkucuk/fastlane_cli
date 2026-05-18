@@ -1,0 +1,52 @@
+[
+  {
+    "category": "EMAIL_ADDRESS",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "category": "NAME",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "category": "AUDIO",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "category": "PHOTOS_OR_VIDEOS",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "category": "OTHER_USER_CONTENT",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "category": "USER_ID",
+    "purposes": ["APP_FUNCTIONALITY", "ANALYTICS"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "category": "DEVICE_ID",
+    "purposes": ["THIRD_PARTY_ADVERTISING", "ANALYTICS"],
+    "data_protections": ["DATA_LINKED_TO_YOU", "DATA_USED_TO_TRACK_YOU"]
+  },
+  {
+    "category": "PRODUCT_INTERACTION",
+    "purposes": ["ANALYTICS"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "category": "CRASH_DATA",
+    "purposes": ["APP_FUNCTIONALITY"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  },
+  {
+    "category": "PURCHASE_HISTORY",
+    "purposes": ["APP_FUNCTIONALITY", "ANALYTICS"],
+    "data_protections": ["DATA_LINKED_TO_YOU"]
+  }
+]
