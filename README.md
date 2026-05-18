@@ -205,7 +205,7 @@ at this repo's `fastlane/` directory. Runner auto-resolution is tracked in
 ### `fastlane_cli` (no subcommand) — TUI
 
 ```
-fastlane_cli [--profile <path>] [--lang tr|en] [--dry-run]
+fastlane_cli [--profile <path>] [--lang tr|en] [--dry-run] [--version]
 ```
 
 Opens the categorized TUI (sidebar, slash palette, live logs, run tabs). With
@@ -218,6 +218,7 @@ no positional argument and no recognized subcommand, the binary delegates to
 | `--profile`, `-p` | Path to `cli_profile.yaml`. Falls back to `$FASTLANE_CLI_PROFILE`, then `./cli_profile.yaml`. |
 | `--lang tr\|en` | Override UI language (otherwise taken from the profile's `default_locale`). |
 | `--dry-run` | Build resolved commands and stream them to the log without executing. |
+| `--version`, `-v` | Print `fastlane_cli <version>` and exit 0. Short-circuits before profile resolution and TUI launch. |
 
 ```bash
 fastlane_cli --profile /abs/path/to/cli_profile.yaml --lang en
