@@ -16,6 +16,7 @@ this directory is the canonical source.
 | [`fastlane-cli-setup`](fastlane-cli-setup/SKILL.md)                    | Scaffold a fresh `cli_profile.yaml` and required credential env vars for a Flutter project.            |
 | [`fastlane-cli-run`](fastlane-cli-run/SKILL.md)                        | Translate a natural-language intent into `fastlane_cli run <action-id>` via runtime action discovery.  |
 | [`fastlane-version-bump`](fastlane-version-bump/SKILL.md)              | Inspect or bump pubspec `version: X.Y.Z+N` and reconcile it with the stores.                            |
+| [`fastlane-cli-version-bump`](fastlane-cli-version-bump/SKILL.md)      | Bump fastlane_cli's *own* `pubspec.yaml` + formula version per conventional-commits rules when shipping a PR. |
 | [`fastlane-metadata-sync`](fastlane-metadata-sync/SKILL.md)            | Pull / push App Store and Play store listing text + screenshots + App Privacy.                          |
 | [`fastlane-testflight`](fastlane-testflight/SKILL.md)                  | iOS TestFlight release flow — credentials, version handling, canonical action ids.                      |
 | [`fastlane-play-internal`](fastlane-play-internal/SKILL.md)            | Android Play Console internal-track release flow — service account, version handling, action ids.       |
