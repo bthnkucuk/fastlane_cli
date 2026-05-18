@@ -1,6 +1,7 @@
 library;
 
 export 'src/bootstrap/fastlane_cli_launcher.dart';
+export 'src/localization/i18n/strings.g.dart' show AppLocale, LocaleSettings, t;
 export 'src/cli/completion_command.dart';
 export 'src/cli/doctor_command.dart';
 export 'src/cli/fastlane_cli_runner.dart';

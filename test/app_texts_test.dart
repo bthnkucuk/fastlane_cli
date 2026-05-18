@@ -1,53 +1,55 @@
 import 'package:fastlane_cli/src/localization/app_texts.dart';
+import 'package:fastlane_cli/src/localization/i18n/strings.g.dart';
 import 'package:fastlane_cli/src/localization/locale_code.dart';
 import 'package:fastlane_cli/src/model/run_session.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('AppTexts', () {
-    void exercise(AppTexts t) {
-      t.homeTitle;
-      t.androidTitle;
-      t.iosTitle;
-      t.generalTitle;
-      t.guidesTitle;
-      t.runTitle;
-      t.shortcuts;
-      t.categories;
-      t.noAction;
-      t.pressEnterToRun;
-      t.upDownNavigate;
-      t.footerHints;
-      t.lastRun;
-      t.command;
-      t.logs;
-      t.progress;
-      t.currentFile;
-      t.waitingLogs;
-      t.commandPalettePlaceholder;
-      t.commandPaletteTitle;
-      t.commandPaletteNoResult;
-      t.shellBrand;
-      t.pages;
-      t.validationFailed;
-      t.blockedByGuide;
-      t.runConfirmTitle;
-      t.runConfirmMessage('A');
-      t.runConfirmHint;
-      t.runConfirmApprove;
-      t.runConfirmCancel;
-      t.retry;
-      t.back;
-      t.copyOutput;
-      t.copiedOutput;
-      t.confirmPrompt;
-      t.guideRetry;
-      t.guideFallback;
-      t.dryRunLabel;
-      t.localeLabel;
+  group('AppTexts (slang facade)', () {
+    void exercise(AppTexts texts) {
+      texts.homeTitle;
+      texts.androidTitle;
+      texts.iosTitle;
+      texts.generalTitle;
+      texts.guidesTitle;
+      texts.runTitle;
+      texts.shortcuts;
+      texts.categories;
+      texts.noAction;
+      texts.pressEnterToRun;
+      texts.upDownNavigate;
+      texts.footerHints;
+      texts.lastRun;
+      texts.command;
+      texts.logs;
+      texts.progress;
+      texts.currentFile;
+      texts.waitingLogs;
+      texts.commandPalettePlaceholder;
+      texts.commandPaletteTitle;
+      texts.commandPaletteNoResult;
+      texts.shellBrand;
+      texts.pages;
+      texts.validationFailed;
+      texts.blockedByGuide;
+      texts.runConfirmTitle;
+      texts.runConfirmMessage('A');
+      texts.runConfirmHint;
+      texts.runConfirmApprove;
+      texts.runConfirmCancel;
+      texts.retry;
+      texts.back;
+      texts.copyOutput;
+      texts.copiedOutput;
+      texts.confirmPrompt;
+      texts.guideRetry;
+      texts.guideFallback;
+      texts.dryRunLabel;
+      texts.localeLabel;
     }
 
     test('covers getters for Turkish locale', () {
+      LocaleSettings.setLocaleSync(AppLocale.tr);
       const texts = AppTexts(LocaleCode.tr);
       exercise(texts);
       expect(texts.homeTitle, contains('Ana'));
@@ -59,6 +61,7 @@ void main() {
     });
 
     test('covers getters for English locale', () {
+      LocaleSettings.setLocaleSync(AppLocale.en);
       const texts = AppTexts(LocaleCode.en);
       exercise(texts);
       expect(texts.homeTitle, 'Home');
@@ -68,26 +71,50 @@ void main() {
     });
 
     test('statusLabel covers every RunStatus with locale-distinct labels', () {
+      // Snapshot both locales by switching slang's current locale.
+      final trLabels = <RunStatus, String>{};
+      LocaleSettings.setLocaleSync(AppLocale.tr);
       const tr = AppTexts(LocaleCode.tr);
+      for (final status in RunStatus.values) {
+        trLabels[status] = tr.statusLabel(status);
+      }
+
+      final enLabels = <RunStatus, String>{};
+      LocaleSettings.setLocaleSync(AppLocale.en);
       const en = AppTexts(LocaleCode.en);
-      // Tüm RunStatus değerleri non-empty olmalı VE TR/EN birbirinden farklı
-      // olmalı; aksi halde bir locale dalı sessizce fallback'e düşmüş demektir.
-      // Hem `isNotEmpty` (sound bucket) hem de gerçek değer kontratı.
-      final labels = <RunStatus, ({String tr, String en})>{
-        for (final status in RunStatus.values) status: (tr: tr.statusLabel(status), en: en.statusLabel(status)),
-      };
-      expect(labels, hasLength(RunStatus.values.length));
-      for (final entry in labels.entries) {
-        expect(entry.value.tr, isNotEmpty, reason: 'TR statusLabel(${entry.key}) boş');
-        expect(entry.value.en, isNotEmpty, reason: 'EN statusLabel(${entry.key}) boş');
+      for (final status in RunStatus.values) {
+        enLabels[status] = en.statusLabel(status);
+      }
+
+      expect(trLabels, hasLength(RunStatus.values.length));
+      for (final status in RunStatus.values) {
+        expect(trLabels[status], isNotEmpty,
+            reason: 'TR statusLabel($status) boş');
+        expect(enLabels[status], isNotEmpty,
+            reason: 'EN statusLabel($status) boş');
         expect(
-          entry.value.tr,
-          isNot(equals(entry.value.en)),
-          reason:
-              'TR ve EN aynı: statusLabel(${entry.key}) — '
+          trLabels[status],
+          isNot(equals(enLabels[status])),
+          reason: 'TR ve EN aynı: statusLabel($status) — '
               'muhtemelen locale dalı atlandı',
         );
       }
+    });
+  });
+
+  group('LocaleCode <-> AppLocale adapter', () {
+    test('round-trips both supported locales', () {
+      expect(LocaleCode.tr.toAppLocale(), AppLocale.tr);
+      expect(LocaleCode.en.toAppLocale(), AppLocale.en);
+      expect(AppLocale.tr.toLocaleCode(), LocaleCode.tr);
+      expect(AppLocale.en.toLocaleCode(), LocaleCode.en);
+    });
+
+    test('LocaleSettings.setLocaleSync swaps the slang `t` accessor', () {
+      LocaleSettings.setLocaleSync(AppLocale.tr);
+      expect(t.homeTitle, 'Ana Sayfa');
+      LocaleSettings.setLocaleSync(AppLocale.en);
+      expect(t.homeTitle, 'Home');
     });
   });
 }

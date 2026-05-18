@@ -1,0 +1,90 @@
+homeTitle: Ana Sayfa
+androidTitle: Android
+iosTitle: iOS
+generalTitle: Genel
+guidesTitle: Kılavuz
+runTitle: Çalıştır
+shortcuts: Hızlı Erişim
+categories: Kategoriler
+noAction: Aksiyon bulunamadı.
+pressEnterToRun: "Enter: Çalıştır"
+upDownNavigate: "↑/↓: Seçim değiştir"
+footerHints: "A:Android I:iOS G:Genel H:Ana D:Guide L:Dil Q:Çıkış"
+lastRun: Son Çalıştırma
+command: Komut
+logs: Loglar
+progress: İlerleme
+currentFile: Aktif Dosya
+waitingLogs: Log akışı bekleniyor...
+commandPalettePlaceholder: "/ sayfa veya aksiyon ara"
+commandPaletteTitle: Komut Paleti
+commandPaletteNoResult: Eşleşme bulunamadı
+shellBrand: ⚡ Fast CLI
+pages: Sayfalar
+validationFailed: Doğrulama başarısız
+blockedByGuide: Aksiyon kılavuz eksikleri nedeniyle durduruldu.
+runConfirmTitle: Çalıştırma Onayı
+runConfirmMessage(actionTitle): '"${actionTitle}" aksiyonunu çalıştırmak istiyor musun?'
+runConfirmHint: "Y/Enter: Onayla · N/Esc: İptal"
+runConfirmApprove: "Onayla (Y/Enter)"
+runConfirmCancel: "İptal (N/Esc)"
+quitConfirmTitle: Çıkış Onayı
+quitConfirmMessage: Uygulamadan çıkmak istediğine emin misin?
+retry: "R: Tekrar dene"
+back: "B: Geri"
+copyOutput: "C/Ctrl+Shift+C: Çıktıyı kopyala"
+copiedOutput: Çıktı panoya kopyalandı.
+confirmPrompt: Bu aksiyon onay gerektirir. Y ile onayla.
+guideRetry: "R: Bu aksiyonu tekrar çalıştır"
+guideFallback: Bu konu için kılavuz yok.
+dryRunLabel: Dry-run (simülasyon)
+localeLabel: Dil
+
+status:
+  idle: Bekleniyor
+  validating: Doğrulanıyor
+  blocked: Bloklandı
+  confirmationRequired: Onay Bekliyor
+  running: Çalışıyor
+  succeeded: Başarılı
+  failed: Başarısız
+  dryRun: Dry-run tamamlandı
+
+palette:
+  homeTitle: Ana Sayfa
+  generalTitle: Genel
+  guideAndroidMetadata: "Guide: Android Metadata"
+  guideIosMetadata: "Guide: iOS Metadata"
+  quitTitle: Çıkış
+  quitSubtitle: "q, quit, exit"
+
+guides:
+  androidMetadata:
+    title: Android Metadata & Screenshots
+    summary: Play Store metadata ve screenshot klasörlerini bu yapıda hazırlayın.
+    checklist:
+      - Locale klasörü açın (ör. tr-TR, en-US).
+      - title.txt, short_description.txt, full_description.txt ekleyin.
+      - changelogs/<version_code>.txt ile release notes dosyası ekleyin.
+      - images altında tüm screenshot klasörlerini oluşturun.
+      - En az bir ekran görüntüsünü .png/.jpg olarak ekleyin.
+    pathSuffixes:
+      - /<locale>/title.txt
+      - /<locale>/short_description.txt
+      - /<locale>/full_description.txt
+      - /<locale>/changelogs/<version_code>.txt
+      - /<locale>/images/phoneScreenshots
+      - /<locale>/images/sevenInchScreenshots
+      - /<locale>/images/tenInchScreenshots
+      - /<locale>/images/tvScreenshots
+      - /<locale>/images/wearScreenshots
+  iosMetadata:
+    title: iOS Metadata & Screenshots
+    summary: App Store metadata/screenshot yapısını düzeltip sonra aksiyonu tekrar çalıştırın.
+    checklist:
+      - Her locale için metadata klasörü oluşturun (ör. tr-TR, en-US).
+      - Locale klasörlerinde .txt metadata ve whats_new.txt dosyalarını ekleyin.
+      - review_information klasörüne iletişim dosyalarını koyun.
+      - screenshots/<locale> altında en az bir screenshot ekleyin.
+    appleTvSuffix: "/appleTV (opsiyonel)"
+    iMessageSuffix: "/iMessage (opsiyonel)"

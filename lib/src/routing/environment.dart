@@ -1,3 +1,4 @@
+import '../localization/i18n/strings.g.dart';
 import '../localization/locale_code.dart';
 import '../model/cli_profile.dart';
 import '../services/command_builder.dart';
@@ -18,7 +19,9 @@ class FastlaneCliEnvironment {
     required this.guideRegistry,
     this.paletteSuggestionService = const PaletteSuggestionService(),
     this.progressParser = const RunProgressParser(),
-  }) : _locale = initialLocale;
+  }) : _locale = initialLocale {
+    LocaleSettings.setLocaleSync(initialLocale.toAppLocale());
+  }
 
   final CliProfile profile;
   final bool dryRun;
@@ -45,6 +48,7 @@ class FastlaneCliEnvironment {
   void setLocale(LocaleCode locale) {
     if (_locale == locale) return;
     _locale = locale;
+    LocaleSettings.setLocaleSync(locale.toAppLocale());
     for (final listener in List.of(_localeListeners)) {
       listener(locale);
     }

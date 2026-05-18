@@ -1,3 +1,4 @@
+import '../localization/i18n/strings.g.dart';
 import '../localization/locale_code.dart';
 import '../model/cli_profile.dart';
 import '../model/palette_suggestion.dart';
@@ -14,28 +15,24 @@ class PaletteSuggestionService {
     final suggestions = <PaletteSuggestion>[
       _page(
         id: 'home',
-        title: locale == LocaleCode.tr ? 'Ana Sayfa' : 'Home',
+        title: t.palette.homeTitle,
         path: '/',
       ),
-      _page(id: 'android', title: 'Android', path: '/android'),
-      _page(id: 'ios', title: 'iOS', path: '/ios'),
+      _page(id: 'android', title: t.androidTitle, path: '/android'),
+      _page(id: 'ios', title: t.iosTitle, path: '/ios'),
       _page(
         id: 'general',
-        title: locale == LocaleCode.tr ? 'Genel' : 'General',
+        title: t.palette.generalTitle,
         path: '/general',
       ),
       _guide(
         id: 'guide_android_metadata',
-        title: locale == LocaleCode.tr
-            ? 'Guide: Android Metadata'
-            : 'Guide: Android Metadata',
+        title: t.palette.guideAndroidMetadata,
         path: '/guides/android_metadata',
       ),
       _guide(
         id: 'guide_ios_metadata',
-        title: locale == LocaleCode.tr
-            ? 'Guide: iOS Metadata'
-            : 'Guide: iOS Metadata',
+        title: t.palette.guideIosMetadata,
         path: '/guides/ios_metadata',
       ),
       ...profile.actions.map(
@@ -49,8 +46,8 @@ class PaletteSuggestionService {
       ),
       _command(
         id: 'command_quit',
-        title: locale == LocaleCode.tr ? 'Çıkış' : 'Quit',
-        subtitle: locale == LocaleCode.tr ? 'q, quit, exit' : 'q, quit, exit',
+        title: t.palette.quitTitle,
+        subtitle: t.palette.quitSubtitle,
         commandId: 'quit',
       ),
     ];
