@@ -61,7 +61,10 @@ void main() {
         ],
       );
 
-      final builder = const CommandBuilder(bundleCache: _testBundleCache);
+      final builder = const CommandBuilder(
+        bundleCache: _testBundleCache,
+        environment: <String, String>{},
+      );
       final request = builder.build(profile: profile, action: action);
 
       expect(request.executable, 'bundle');
@@ -243,8 +246,10 @@ void main() {
         ],
       );
 
-      final request = const CommandBuilder(bundleCache: _testBundleCache)
-          .build(profile: profile, action: action);
+      final request = const CommandBuilder(
+        bundleCache: _testBundleCache,
+        environment: <String, String>{},
+      ).build(profile: profile, action: action);
 
       expect(request.arguments, <String>['exec', 'fastlane', 'noop']);
       expect(request.environment['BUNDLE_PATH'], _expectedBundlePath);
@@ -288,12 +293,85 @@ void main() {
         ],
       );
 
-      final request = const CommandBuilder(bundleCache: _testBundleCache)
-          .build(profile: profile, action: action);
+      final request = const CommandBuilder(
+        bundleCache: _testBundleCache,
+        environment: <String, String>{},
+      ).build(profile: profile, action: action);
 
       expect(request.environment['FOO'], 'bar');
       expect(request.environment['QUOTED'], 'baz');
       expect(request.environment['BUNDLE_PATH'], _expectedBundlePath);
+    });
+
+    test(
+        'merges app-root/.env, fastlane/.env, and FASTLANE_FLAVOR-scoped env',
+        () async {
+      final temp = await Directory.systemTemp
+          .createTemp('fastlane_cli_dotenv_merge');
+      addTearDown(() => temp.delete(recursive: true));
+
+      File(p.join(temp.path, 'fastlane', 'Gemfile'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('source "https://rubygems.org"');
+
+      File(p.join(temp.path, '.env')).writeAsStringSync(
+        'ROOT_ONLY=root\n'
+        'OVERRIDE_ME=fromroot\n'
+        'TOWERED=bottom\n',
+      );
+      File(p.join(temp.path, 'fastlane', '.env')).writeAsStringSync(
+        'OVERRIDE_ME=fromfastlane\n'
+        'TOWERED=middle\n'
+        'FASTLANE_ONLY=fl\n',
+      );
+      File(p.join(temp.path, 'fastlane', '.env.dev')).writeAsStringSync(
+        'TOWERED=top\n'
+        'FLAVOR_KEY=devvalue\n',
+      );
+
+      final action = CliAction(
+        id: 'env_lane',
+        categoryId: 'general',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'E',
+          AppLocale.en: 'E',
+        },
+        description: const <AppLocale, String>{},
+        command: const CliActionCommand(
+          type: ActionCommandType.fastlane,
+          lane: 'noop',
+        ),
+        preflightChecks: const <PreflightCheck>[],
+        shortcut: false,
+        requiresConfirmation: false,
+      );
+
+      final profile = createTestProfile(
+        appRootPath: temp.path,
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'general', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final request = CommandBuilder(
+        bundleCache: _testBundleCache,
+        environment: const <String, String>{
+          'FASTLANE_FLAVOR': 'dev',
+          // Shell wins for OVERRIDE_ME because it's defined in some file.
+          'OVERRIDE_ME': 'fromshell',
+        },
+      ).build(profile: profile, action: action);
+
+      // Precedence: shell > fastlane/.env.<flavor> > fastlane/.env > app/.env.
+      expect(request.environment['ROOT_ONLY'], 'root');
+      expect(request.environment['FASTLANE_ONLY'], 'fl');
+      expect(request.environment['FLAVOR_KEY'], 'devvalue');
+      expect(request.environment['TOWERED'], 'top');
+      expect(request.environment['OVERRIDE_ME'], 'fromshell');
+      // Standard plumbing still present.
+      expect(request.environment['FASTLANE_ROOT'], '${temp.path}/fastlane');
+      expect(request.environment['FASTLANE_APP_ROOT'], temp.path);
     });
 
     test('throws when fastlane lane is missing', () {

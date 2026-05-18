@@ -126,17 +126,27 @@ export FASTLANE_PUBSPEC_PATH="/abs/path/to/pubspec.yaml"  # only if non-standard
 
 ## Step 4 — Verify
 
-Run the diagnostics subcommand (see the `fastlane-doctor` skill for full
-detail):
+From inside the Flutter app's root directory (or any subdirectory of it),
+no flags required — `fastlane_cli` walks up looking for the dir that
+contains both `pubspec.yaml` and `fastlane/cli_profile.yaml`:
 
 ```sh
-fastlane_cli doctor --profile ./cli_profile.yaml
+cd /path/to/your-flutter-app
+fastlane_cli doctor      # validate env (see fastlane-doctor skill)
+fastlane_cli list --json # confirm the profile loads
 ```
 
-Then list actions to confirm the profile loads:
+The CLI prints `discovered: /abs/path/to/fastlane/cli_profile.yaml` on
+stderr so the user sees which profile was picked up. `.env` files placed
+at `<app>/fastlane/.env`, `<app>/.env`, and `<app>/fastlane/.env.<flavor>`
+(when `FASTLANE_FLAVOR` is set) are auto-forwarded into the lane process —
+no `source fastlane/.env` needed.
+
+Explicit-profile path still works for scripting / CI:
 
 ```sh
-fastlane_cli list --json --profile ./cli_profile.yaml
+fastlane_cli doctor --profile ./fastlane/cli_profile.yaml
+fastlane_cli list --json --profile ./fastlane/cli_profile.yaml
 ```
 
 If both succeed, the user is ready. Hand off to `fastlane-cli-run` for "how do
