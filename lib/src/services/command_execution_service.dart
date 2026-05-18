@@ -85,11 +85,161 @@ abstract class CommandExecutionService {
   });
 }
 
+/// Process-lifecycle supervisor.
+///
+/// Owns a registry of every live child [Process] spawned by
+/// [ProcessCommandExecutionService] and a single set of OS-signal listeners
+/// (SIGINT / SIGTERM / SIGHUP on POSIX) that relay the received signal to
+/// every registered child. Also exposes [shutdownAll] for graceful + forceful
+/// teardown from non-signal paths (in-app quit, unhandled exception, etc.).
+///
+/// Why this exists: without it, when the TUI quits while a `bundle exec
+/// fastlane …` lane is mid-flight, the spawned Ruby child outlives the parent
+/// and accumulates as an orphan. This was partially patched for Ctrl+C in
+/// 63b8e4e, but every other exit path (Q-quit, SIGTERM, SIGHUP, uncaught
+/// Dart exception) still leaked. [ProcessSupervisor] closes those gaps in one
+/// place.
+///
+/// Signal handling on Windows is unreliable (Dart cannot post POSIX signals
+/// to children). On Windows, registry teardown falls back to `Process.kill`
+/// without a specific signal, which becomes a forceful terminate.
+class ProcessSupervisor {
+  ProcessSupervisor._();
+
+  static final ProcessSupervisor instance = ProcessSupervisor._();
+
+  final Set<Process> _live = <Process>{};
+  bool _signalsInstalled = false;
+  final List<StreamSubscription<ProcessSignal>> _signalSubs =
+      <StreamSubscription<ProcessSignal>>[];
+
+  /// Number of children currently being supervised. Test-only hook.
+  int get liveCount => _live.length;
+
+  /// Register a freshly-spawned [Process]. Idempotent — registering the same
+  /// process twice is a no-op.
+  void register(Process process) {
+    _live.add(process);
+    _ensureSignalsInstalled();
+    // Auto-deregister when the child exits on its own.
+    // ignore: unawaited_futures
+    process.exitCode.whenComplete(() {
+      _live.remove(process);
+    });
+  }
+
+  /// Unregister a [Process] (used by tests and by the executor on normal
+  /// completion paths).
+  void unregister(Process process) {
+    _live.remove(process);
+  }
+
+  /// Install SIGINT/SIGTERM/SIGHUP listeners exactly once. Each listener
+  /// relays the received signal to every registered child. We do NOT call
+  /// [exit] from the handler — the parent's normal exit path (nocterm
+  /// `shutdownApp` or `runZonedGuarded` error handler) is responsible for
+  /// terminating the TUI itself. Our only job is to make sure children die.
+  void _ensureSignalsInstalled() {
+    if (_signalsInstalled) return;
+    if (Platform.isWindows) {
+      // ProcessSignal.watch is unsupported / unreliable on Windows. Skip.
+      _signalsInstalled = true;
+      return;
+    }
+    _signalsInstalled = true;
+    void install(ProcessSignal signal) {
+      try {
+        _signalSubs.add(signal.watch().listen((_) {
+          _relayToAll(signal);
+        }));
+      } on SignalException {
+        // Some signals (e.g. SIGHUP under Dart test isolates) cannot be
+        // watched in every environment. Silently skip.
+      }
+    }
+    install(ProcessSignal.sigint);
+    install(ProcessSignal.sigterm);
+    install(ProcessSignal.sighup);
+  }
+
+  void _relayToAll(ProcessSignal signal) {
+    // Snapshot the set so concurrent modification during iteration is safe.
+    final snapshot = _live.toList(growable: false);
+    for (final process in snapshot) {
+      try {
+        process.kill(signal);
+      } catch (_) {
+        // Child may have already exited — nothing to do.
+      }
+    }
+  }
+
+  /// Tear down every live child. First sends [signal] (default SIGINT) and
+  /// waits up to [graceful] for each child to exit; any survivor is then
+  /// sent SIGKILL.
+  ///
+  /// Safe to call repeatedly. Returns once every supervised child has either
+  /// exited or been SIGKILL'd. Callers (e.g. the in-app quit handler) should
+  /// await this BEFORE invoking `shutdownApp()` to avoid orphans.
+  Future<void> shutdownAll({
+    Duration graceful = const Duration(milliseconds: 500),
+    ProcessSignal signal = ProcessSignal.sigint,
+  }) async {
+    if (_live.isEmpty) return;
+    final snapshot = _live.toList(growable: false);
+
+    // Phase 1: graceful kill.
+    for (final process in snapshot) {
+      try {
+        if (Platform.isWindows) {
+          process.kill();
+        } else {
+          process.kill(signal);
+        }
+      } catch (_) {
+        // already gone
+      }
+    }
+
+    // Phase 2: await exit with timeout.
+    final waits = <Future<int?>>[
+      for (final process in snapshot)
+        process.exitCode
+            .then<int?>((c) => c)
+            .timeout(graceful, onTimeout: () => null),
+    ];
+    final results = await Future.wait(waits);
+
+    // Phase 3: SIGKILL any straggler.
+    for (var i = 0; i < snapshot.length; i++) {
+      if (results[i] != null) continue;
+      try {
+        snapshot[i].kill(ProcessSignal.sigkill);
+      } catch (_) {
+        // already gone
+      }
+    }
+  }
+
+  /// Drop every signal listener. Test-only hook so isolates don't leak
+  /// listeners across test cases.
+  Future<void> resetForTesting() async {
+    for (final sub in _signalSubs) {
+      await sub.cancel();
+    }
+    _signalSubs.clear();
+    _signalsInstalled = false;
+    _live.clear();
+  }
+}
+
 class ProcessCommandExecutionService implements CommandExecutionService {
   ProcessCommandExecutionService({
     this.useUnixPty = true,
     DoctorService? doctorService,
-  }) : _doctorService = doctorService ?? DoctorService();
+    ProcessSupervisor? supervisor,
+  })  : _doctorService = doctorService ?? DoctorService(),
+        _supervisor = supervisor ?? ProcessSupervisor.instance;
 
   /// When true on macOS/Linux, wraps the command in `script(1)` so child
   /// processes see a TTY and emit ANSI colors (Fastlane, etc.).
@@ -98,6 +248,10 @@ class ProcessCommandExecutionService implements CommandExecutionService {
   /// Lazily bootstraps the user-cache bundle the first time a fastlane lane
   /// runs. Injected so tests can supply a no-op.
   final DoctorService _doctorService;
+
+  /// Tracks every live child so we can tear them all down on any exit path
+  /// (Ctrl+C, in-app Q, SIGTERM, SIGHUP, uncaught exception).
+  final ProcessSupervisor _supervisor;
 
   @override
   Future<CommandExecutionResult> run(
@@ -157,6 +311,12 @@ class ProcessCommandExecutionService implements CommandExecutionService {
     final spawn = _spawnConfig(request, useUnixPty: useUnixPty);
     final Process process;
     try {
+      // mode defaults to ProcessStartMode.normal: child shares stdin/stdout
+      // with the parent process group on POSIX. We must NOT pass
+      // ProcessStartMode.detached or detachedWithStdio here — those would
+      // start the child in its own session and survive the parent on Mac
+      // and Linux. Even though `script(1)` is involved on POSIX, it does
+      // not setsid by default, so the child stays in our process group.
       process = await Process.start(
         spawn.executable,
         spawn.arguments,
@@ -180,21 +340,13 @@ class ProcessCommandExecutionService implements CommandExecutionService {
       CommandLogEvent(message: '[exec] pid=${process.pid}', isError: false),
     );
 
-    // Relay SIGINT (Ctrl+C) from the parent process to the spawned child so
-    // that interrupting the CLI also interrupts the underlying `bundle exec
-    // fastlane …` run. Without this, the child outlives the TUI on Ctrl+C
-    // and orphan processes accumulate. We skip on Windows where Dart cannot
-    // post signals to child processes.
-    StreamSubscription<ProcessSignal>? sigintSub;
-    if (!Platform.isWindows) {
-      sigintSub = ProcessSignal.sigint.watch().listen((_) {
-        try {
-          process.kill(ProcessSignal.sigint);
-        } catch (_) {
-          // Child may have already exited — nothing to do.
-        }
-      });
-    }
+    // Register with the supervisor BEFORE we start awaiting exit, so the
+    // signal listeners installed in `register()` are in place ahead of any
+    // possible SIGINT / SIGTERM / SIGHUP that arrives during the child's
+    // lifetime. The supervisor relays POSIX signals received by the parent
+    // to the child and provides the explicit shutdownAll() entry point used
+    // by the in-app quit handler.
+    _supervisor.register(process);
 
     unawaited(process.stdin.close());
 
@@ -216,7 +368,7 @@ class ProcessCommandExecutionService implements CommandExecutionService {
 
     final exitCode = await process.exitCode;
     await Future.wait(<Future<void>>[stdoutDone, stderrDone]);
-    await sigintSub?.cancel();
+    _supervisor.unregister(process);
     return CommandExecutionResult(exitCode: exitCode, wasDryRun: false);
   }
 }
