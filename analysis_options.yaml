@@ -1,1 +1,7 @@
 include: package:lints/recommended.yaml
+
+linter:
+  rules:
+    # The CLI streams logs through nocterm; raw stdout should go via
+    # the rendering pipeline, never bare print() calls.
+    avoid_print: true

@@ -22,7 +22,6 @@ dependencies:
 
 dependency_overrides:
   nocterm: ^0.6.0
-  meta: 1.18.0
 
 dev_dependencies:
   collection: ^1.19.1
