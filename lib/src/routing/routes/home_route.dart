@@ -1,6 +1,6 @@
 import 'package:nocterm/nocterm.dart';
 
-import '../../localization/app_texts.dart';
+import '../../localization/i18n/strings.g.dart';
 import '../../ui/components/action_list_view.dart';
 import '../../ui/components/shell_scaffold.dart';
 import '../app_route.dart';
@@ -38,7 +38,6 @@ class _HomeViewState extends State<_HomeView> {
   @override
   Component build(BuildContext context) {
     final env = component.coordinator.environment;
-    final texts = AppTexts(env.locale);
     final shortcuts = env.profile.shortcutActions;
     if (_selectedIndex >= shortcuts.length) {
       _selectedIndex = shortcuts.isEmpty ? 0 : shortcuts.length - 1;
@@ -51,16 +50,16 @@ class _HomeViewState extends State<_HomeView> {
       focused: !component.coordinator.palettePath.expanded,
       onKeyEvent: (event) => _onKeyEvent(event, shortcuts.length),
       child: ShellScaffold(
-        pageTitle: texts.homeTitle,
+        pageTitle: t.homeTitle,
         subtitle:
-            '${texts.shortcuts} · ${texts.localeLabel}: ${env.locale.name.toUpperCase()}',
+            '${t.shortcuts} · ${t.localeLabel}: ${env.locale.name.toUpperCase()}',
         body: Column(
           crossAxisAlignment: .start,
           children: <Component>[
-            Text('${texts.upDownNavigate} · ${texts.pressEnterToRun}'),
+            Text('${t.upDownNavigate} · ${t.pressEnterToRun}'),
             const SizedBox(height: 1),
             if (shortcuts.isEmpty)
-              Text(texts.noAction)
+              Text(t.noAction)
             else
               ActionListView(
                 actions: shortcuts,
@@ -78,7 +77,7 @@ class _HomeViewState extends State<_HomeView> {
               ),
             const SizedBox(height: 1),
             Text(
-              '${texts.categories}: Android (/android), iOS (/ios), ${texts.generalTitle} (/general)',
+              '${t.categories}: Android (/android), iOS (/ios), ${t.generalTitle} (/general)',
             ),
           ],
         ),

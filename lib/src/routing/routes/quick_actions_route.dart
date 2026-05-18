@@ -1,6 +1,6 @@
 import 'package:nocterm/nocterm.dart';
 
-import '../../localization/app_texts.dart';
+import '../../localization/i18n/strings.g.dart';
 import '../../model/cli_action.dart';
 import '../app_route.dart';
 import '../coordinator.dart';
@@ -37,7 +37,6 @@ class _QuickActionsViewState extends State<_QuickActionsView> {
   Component build(BuildContext context) {
     final env = component.coordinator.environment;
     final actions = env.profile.shortcutActions;
-    final texts = AppTexts(env.locale);
     final selected = actions.isEmpty
         ? 0
         : _selectedIndex.clamp(0, actions.length - 1);
@@ -72,7 +71,7 @@ class _QuickActionsViewState extends State<_QuickActionsView> {
                   style: BoxBorderStyle.rounded,
                 ),
                 title: BorderTitle(
-                  text: texts.shortcuts,
+                  text: t.shortcuts,
                   style: TextStyle(
                     color: theme.primary,
                     fontWeight: FontWeight.bold,
@@ -84,7 +83,7 @@ class _QuickActionsViewState extends State<_QuickActionsView> {
                 crossAxisAlignment: .start,
                 children: <Component>[
                   if (actions.isEmpty)
-                    Text(texts.noAction,
+                    Text(t.noAction,
                         style: TextStyle(color: theme.secondary))
                   else
                     ...actions.asMap().entries.map((entry) {

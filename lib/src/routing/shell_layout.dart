@@ -1,7 +1,7 @@
 import 'package:nocterm/nocterm.dart';
 import 'package:zenrouter_nocterm/zenrouter_nocterm.dart';
 
-import '../localization/app_texts.dart';
+import '../localization/i18n/strings.g.dart';
 import 'app_route.dart';
 import 'coordinator.dart';
 import 'routes/category_routes.dart';
@@ -206,15 +206,14 @@ class _ShellHeaderState extends State<_ShellHeader> {
   Component build(BuildContext context) {
     final c = component.coordinator;
     final theme = TuiTheme.of(context);
-    final texts = AppTexts(c.environment.locale);
-    final title = '${texts.shellBrand} [${c.environment.profile.appName}]';
+    final title = '${t.shellBrand} [${c.environment.profile.appName}]';
 
     final items = <_HeaderItem>[
-      _HeaderItem(label: texts.homeTitle, index: 0),
+      _HeaderItem(label: t.homeTitle, index: 0),
       _HeaderItem(label: 'Android', index: 1),
       _HeaderItem(label: 'iOS', index: 2),
-      _HeaderItem(label: texts.generalTitle, index: 3),
-      _HeaderItem(label: texts.guidesTitle, index: 4),
+      _HeaderItem(label: t.generalTitle, index: 3),
+      _HeaderItem(label: t.guidesTitle, index: 4),
     ];
 
     return Container(
@@ -233,7 +232,7 @@ class _ShellHeaderState extends State<_ShellHeader> {
           const SizedBox(width: 2),
           ...items.map((item) => _buildItem(item, theme, c)),
           Expanded(child: const SizedBox.shrink()),
-          _buildQuickActionsButton(theme, c, texts),
+          _buildQuickActionsButton(theme, c),
         ],
       ),
     );
@@ -288,7 +287,6 @@ class _ShellHeaderState extends State<_ShellHeader> {
   Component _buildQuickActionsButton(
     TuiThemeData theme,
     FastlaneCliCoordinator c,
-    AppTexts texts,
   ) {
     const buttonKey = 'header:quick-actions';
     final visible = c.overlayPath.activeRoute is QuickActionsRoute;
@@ -311,7 +309,7 @@ class _ShellHeaderState extends State<_ShellHeader> {
           decoration: BoxDecoration(color: active ? theme.primary : null),
           padding: const EdgeInsets.symmetric(horizontal: 1),
           child: Text(
-            '${texts.shortcuts} ${visible ? '▴' : '▾'}',
+            '${t.shortcuts} ${visible ? '▴' : '▾'}',
             style: TextStyle(
               color: active ? theme.onPrimary : theme.onSurface,
             ),
@@ -388,7 +386,6 @@ class _ShellFooter extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final theme = TuiTheme.of(context);
-    final texts = AppTexts(coordinator.environment.locale);
     final hints = <String>[
       'Tab Focus',
       '/ Palette',
@@ -396,7 +393,7 @@ class _ShellFooter extends StatelessComponent {
       'A Android',
       'I iOS',
       'G General',
-      'L ${texts.localeLabel}',
+      'L ${t.localeLabel}',
       'Q Quit',
     ];
     return Container(

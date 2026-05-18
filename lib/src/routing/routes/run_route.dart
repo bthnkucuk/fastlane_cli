@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:nocterm/nocterm.dart';
 
-import '../../localization/app_texts.dart';
+import '../../localization/i18n/strings.g.dart';
+import '../../localization/run_status_label.dart';
 import '../../model/run_session.dart';
 import '../../ui/ansi_parsed_log_line.dart';
 import '../../ui/components/shell_scaffold.dart';
@@ -149,7 +150,6 @@ class _RunViewState extends State<_RunView> {
   @override
   Component build(BuildContext context) {
     final env = component.coordinator.environment;
-    final texts = AppTexts(env.locale);
     final action = env.profile.actionsById[component.route.actionId];
     final run = _controller.session;
     _autoStickToTail(run);
@@ -162,30 +162,30 @@ class _RunViewState extends State<_RunView> {
       onKeyEvent: _onKeyEvent,
       child: ShellScaffold(
         pageTitle:
-            '${texts.runTitle}: ${action?.titleFor(env.locale) ?? component.route.actionId}',
+            '${t.runTitle}: ${action?.titleFor(env.locale) ?? component.route.actionId}',
         subtitle:
-            '${texts.statusLabel(run.status)}${run.command == null ? '' : ' · ${texts.command}: ${run.command}'}',
+            '${run.status.label}${run.command == null ? '' : ' · ${t.command}: ${run.command}'}',
         body: Column(
           crossAxisAlignment: .start,
           children: <Component>[
             if (run.status == RunStatus.blocked)
               Text(
-                texts.blockedByGuide,
+                t.blockedByGuide,
                 style: TextStyle(color: theme.error),
               ),
             if (run.validationErrors.isNotEmpty) ...<Component>[
               const SizedBox(height: 1),
-              Text(texts.validationFailed),
+              Text(t.validationFailed),
               for (final item in run.validationErrors) Text('- $item'),
             ],
             const SizedBox(height: 1),
-            _buildProgressSection(run: run, texts: texts, theme: theme),
+            _buildProgressSection(run: run, theme: theme),
             const SizedBox(height: 1),
             Expanded(
-              child: _buildLogConsole(run: run, theme: theme, texts: texts),
+              child: _buildLogConsole(run: run, theme: theme),
             ),
             const SizedBox(height: 1),
-            Text('${texts.retry} · ${texts.back} · ${texts.copyOutput}'),
+            Text('${t.retry} · ${t.back} · ${t.copyOutput}'),
             if (_copyFeedback != null)
               Text(_copyFeedback!, style: TextStyle(color: theme.success)),
           ],
@@ -197,10 +197,7 @@ class _RunViewState extends State<_RunView> {
   bool _onKeyEvent(KeyboardEvent event) {
     if (_handleLogScrollKey(event)) return true;
     if (_isCopyShortcut(event)) {
-      _copyOutput(
-        _controller.session,
-        AppTexts(component.coordinator.environment.locale),
-      );
+      _copyOutput(_controller.session);
       return true;
     }
     if (event.logicalKey == LogicalKey.keyB ||
@@ -219,12 +216,12 @@ class _RunViewState extends State<_RunView> {
     return false;
   }
 
-  void _copyOutput(RunSession run, AppTexts texts) {
+  void _copyOutput(RunSession run) {
     final buf = StringBuffer()
-      ..writeln(texts.statusLabel(run.status))
-      ..writeln('${texts.command}: ${run.command ?? '-'}')
+      ..writeln(run.status.label)
+      ..writeln('${t.command}: ${run.command ?? '-'}')
       ..writeln('')
-      ..writeln(texts.logs);
+      ..writeln(t.logs);
     if (run.logs.isEmpty) {
       buf.writeln('-');
     } else {
@@ -234,7 +231,7 @@ class _RunViewState extends State<_RunView> {
     }
     ClipboardManager.copy(buf.toString());
     _copyFeedbackTimer?.cancel();
-    setState(() => _copyFeedback = texts.copiedOutput);
+    setState(() => _copyFeedback = t.copiedOutput);
     _copyFeedbackTimer = Timer(const Duration(milliseconds: 1400), () {
       if (!mounted) return;
       setState(() => _copyFeedback = null);
@@ -319,10 +316,9 @@ class _RunViewState extends State<_RunView> {
   Component _buildLogConsole({
     required RunSession run,
     required TuiThemeData theme,
-    required AppTexts texts,
   }) {
     final logs = run.logs;
-    // BorderTitle threads the existing localized `texts.logs` string into
+    // BorderTitle threads the existing localized `t.logs` string into
     // the panel chrome — no new string literals introduced here.
     final decoration = BoxDecoration(
       color: theme.background,
@@ -331,7 +327,7 @@ class _RunViewState extends State<_RunView> {
         style: BoxBorderStyle.rounded,
       ),
       title: BorderTitle(
-        text: texts.logs,
+        text: t.logs,
         style: TextStyle(color: theme.onSurface),
       ),
     );
@@ -342,7 +338,7 @@ class _RunViewState extends State<_RunView> {
         decoration: decoration,
         padding: const EdgeInsets.symmetric(horizontal: 1),
         child: Text(
-          texts.waitingLogs,
+          t.waitingLogs,
           style: TextStyle(color: theme.secondary),
         ),
       );
@@ -371,7 +367,6 @@ class _RunViewState extends State<_RunView> {
 
   Component _buildProgressSection({
     required RunSession run,
-    required AppTexts texts,
     required TuiThemeData theme,
   }) {
     final currentFile = run.activeFile;
@@ -382,7 +377,7 @@ class _RunViewState extends State<_RunView> {
     return Column(
       crossAxisAlignment: .start,
       children: <Component>[
-        Text(texts.progress),
+        Text(t.progress),
         ProgressBar(
           value: progressValue,
           indeterminate: indeterminate,
@@ -392,7 +387,7 @@ class _RunViewState extends State<_RunView> {
           minHeight: 3,
         ),
         Text(
-          '${texts.currentFile}: ${currentFile ?? texts.waitingLogs}',
+          '${t.currentFile}: ${currentFile ?? t.waitingLogs}',
           style: TextStyle(color: currentFile == null ? theme.secondary : null),
         ),
       ],

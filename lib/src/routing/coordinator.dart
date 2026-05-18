@@ -1,7 +1,7 @@
 import 'package:nocterm/nocterm.dart' show Container, shutdownApp;
 import 'package:zenrouter_nocterm/zenrouter_nocterm.dart';
 
-import '../localization/app_texts.dart';
+import '../localization/i18n/strings.g.dart';
 import '../model/palette_suggestion.dart';
 import 'app_route.dart';
 import 'command_palette_path.dart';
@@ -103,16 +103,15 @@ class FastlaneCliCoordinator extends Coordinator<AppRoute> {
   /// run-tab strip.
   void requestRun(String actionId) {
     final action = environment.profile.actionsById[actionId];
-    final texts = AppTexts(environment.locale);
     final title = action?.titleFor(environment.locale) ?? actionId;
     // ignore: unawaited_futures
     overlayPath.push(
       ConfirmDialogRoute(
-        title: texts.runConfirmTitle,
-        message: texts.runConfirmMessage(title),
-        approveLabel: texts.runConfirmApprove,
-        cancelLabel: texts.runConfirmCancel,
-        hint: texts.runConfirmHint,
+        title: t.runConfirmTitle,
+        message: t.runConfirmMessage(actionTitle: title),
+        approveLabel: t.runConfirmApprove,
+        cancelLabel: t.runConfirmCancel,
+        hint: t.runConfirmHint,
         onConfirm: () => _openAndStart(actionId),
       ),
     );
@@ -120,14 +119,13 @@ class FastlaneCliCoordinator extends Coordinator<AppRoute> {
 
   /// Push a confirmation dialog and shut the app down on approval.
   void confirmQuit() {
-    final texts = AppTexts(environment.locale);
     // ignore: unawaited_futures
     overlayPath.push(
       ConfirmDialogRoute(
-        title: texts.quitConfirmTitle,
-        message: texts.quitConfirmMessage,
-        approveLabel: texts.runConfirmApprove,
-        cancelLabel: texts.runConfirmCancel,
+        title: t.quitConfirmTitle,
+        message: t.quitConfirmMessage,
+        approveLabel: t.runConfirmApprove,
+        cancelLabel: t.runConfirmCancel,
         onConfirm: shutdownApp,
       ),
     );

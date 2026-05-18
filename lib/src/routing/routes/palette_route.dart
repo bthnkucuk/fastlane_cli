@@ -1,6 +1,6 @@
 import 'package:nocterm/nocterm.dart';
 
-import '../../localization/app_texts.dart';
+import '../../localization/i18n/strings.g.dart';
 import '../../model/palette_suggestion.dart';
 import '../app_route.dart';
 import '../coordinator.dart';
@@ -77,7 +77,6 @@ class _CommandPaletteCompactBarState extends State<CommandPaletteCompactBar> {
   @override
   Component build(BuildContext context) {
     final theme = TuiTheme.of(context);
-    final texts = AppTexts(_c.environment.locale);
     final expanded = _c.palettePath.expanded;
     final suggestions = expanded ? _buildSuggestions() : const <PaletteSuggestion>[];
     if (_selectedIndex >= suggestions.length) {
@@ -87,7 +86,7 @@ class _CommandPaletteCompactBarState extends State<CommandPaletteCompactBar> {
     return Column(
       crossAxisAlignment: .start,
       children: <Component>[
-        if (expanded) _buildSuggestions_(suggestions, theme, texts),
+        if (expanded) _buildSuggestions_(suggestions, theme),
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
@@ -100,7 +99,7 @@ class _CommandPaletteCompactBarState extends State<CommandPaletteCompactBar> {
           child: TextField(
             controller: _controller,
             focused: expanded,
-            placeholder: texts.commandPalettePlaceholder,
+            placeholder: t.commandPalettePlaceholder,
             onChanged: (value) {
               setState(() {
                 _query = value;
@@ -140,7 +139,6 @@ class _CommandPaletteCompactBarState extends State<CommandPaletteCompactBar> {
   Component _buildSuggestions_(
     List<PaletteSuggestion> suggestions,
     TuiThemeData theme,
-    AppTexts texts,
   ) {
     const visible = 8;
     final safeSelected = suggestions.isEmpty
@@ -163,7 +161,7 @@ class _CommandPaletteCompactBarState extends State<CommandPaletteCompactBar> {
           style: BoxBorderStyle.rounded,
         ),
         title: BorderTitle(
-          text: texts.commandPaletteTitle,
+          text: t.commandPaletteTitle,
           style: TextStyle(
             color: theme.primary,
             fontWeight: FontWeight.bold,
@@ -175,7 +173,7 @@ class _CommandPaletteCompactBarState extends State<CommandPaletteCompactBar> {
         crossAxisAlignment: .start,
         children: <Component>[
           if (suggestions.isEmpty)
-            Text(texts.commandPaletteNoResult,
+            Text(t.commandPaletteNoResult,
                 style: TextStyle(color: theme.warning))
           else
             ...window.asMap().entries.map((entry) {

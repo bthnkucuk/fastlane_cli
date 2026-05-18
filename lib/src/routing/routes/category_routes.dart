@@ -1,6 +1,6 @@
 import 'package:nocterm/nocterm.dart';
 
-import '../../localization/app_texts.dart';
+import '../../localization/i18n/strings.g.dart';
 import '../../ui/components/action_list_view.dart';
 import '../../ui/components/shell_scaffold.dart';
 import '../app_route.dart';
@@ -67,7 +67,6 @@ class _CategoryViewState extends State<_CategoryView> {
     final matching = profile.categories.where((c) => c.id == component.categoryId);
     final category = matching.isEmpty ? null : matching.first;
     final actions = profile.actionsForCategory(component.categoryId);
-    final texts = AppTexts(env.locale);
 
     if (_selectedIndex >= actions.length) {
       _selectedIndex = actions.isEmpty ? 0 : actions.length - 1;
@@ -90,11 +89,11 @@ class _CategoryViewState extends State<_CategoryView> {
           crossAxisAlignment: .start,
           children: <Component>[
             Text(
-              '${texts.upDownNavigate} · ${texts.pressEnterToRun} · ${texts.back}',
+              '${t.upDownNavigate} · ${t.pressEnterToRun} · ${t.back}',
             ),
             const SizedBox(height: 1),
             if (actions.isEmpty)
-              Text(texts.noAction)
+              Text(t.noAction)
             else
               ActionListView(
                 actions: actions,

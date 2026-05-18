@@ -23,7 +23,7 @@ lib/
   fastlane_cli.dart     # public library export
   src/
     bootstrap/          # FastlaneCliLauncher
-    localization/       # app_texts, locale_code (tr/en)
+    localization/       # slang i18n (tr/en), locale_code, run_status_label
     model/              # CliProfile, CliAction, CommandRequest, ...
     routing/            # zenrouter Coordinator + routes
     services/           # CommandBuilder, ProfileLoader, GuideRegistry, ...

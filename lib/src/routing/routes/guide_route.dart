@@ -1,6 +1,6 @@
 import 'package:nocterm/nocterm.dart';
 
-import '../../localization/app_texts.dart';
+import '../../localization/i18n/strings.g.dart';
 import '../../localization/locale_code.dart';
 import '../../model/guide_topic.dart';
 import '../../ui/components/shell_scaffold.dart';
@@ -51,7 +51,6 @@ class _GuideView extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final env = coordinator.environment;
-    final texts = AppTexts(env.locale);
     final guide = env.guideRegistry.topicById(
       topicId: topicId,
       profile: env.profile,
@@ -61,17 +60,17 @@ class _GuideView extends StatelessComponent {
       focused: !coordinator.palettePath.expanded,
       onKeyEvent: _onKeyEvent,
       child: ShellScaffold(
-        pageTitle: guide?.titleFor(env.locale) ?? texts.guidesTitle,
-        subtitle: guide?.summaryFor(env.locale) ?? texts.guideFallback,
-        body: _buildBody(env.locale, texts, guide),
+        pageTitle: guide?.titleFor(env.locale) ?? t.guidesTitle,
+        subtitle: guide?.summaryFor(env.locale) ?? t.guideFallback,
+        body: _buildBody(env.locale, guide),
       ),
     );
   }
 
-  Component _buildBody(LocaleCode locale, AppTexts texts, GuideTopic? guide) {
+  Component _buildBody(LocaleCode locale, GuideTopic? guide) {
     final items = <Component>[];
     if (guide == null) {
-      items.add(Text(texts.guideFallback));
+      items.add(Text(t.guideFallback));
     } else {
       // NOTE: `markdownFor` currently synthesizes markdown from the
       // checklist + paths maps. When the Slang agent migrates the registry
@@ -82,10 +81,10 @@ class _GuideView extends StatelessComponent {
 
     if (retryActionId != null && retryActionId!.isNotEmpty) {
       items.add(const SizedBox(height: 1));
-      items.add(Text('${texts.guideRetry} ($retryActionId)'));
+      items.add(Text('${t.guideRetry} ($retryActionId)'));
     }
     items.add(const SizedBox(height: 1));
-    items.add(Text(texts.back));
+    items.add(Text(t.back));
 
     return Column(crossAxisAlignment: .start, children: items);
   }
