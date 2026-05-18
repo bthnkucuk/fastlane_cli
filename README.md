@@ -16,17 +16,18 @@ lanes for TestFlight / App Store / Play Console.
 ### Homebrew (recommended, once published)
 
 ```bash
-brew install <owner>/fastlane_cli/fastlane_cli
+brew install bthnkucuk/fastlane_cli/fastlane_cli
 ```
 
-The `<owner>` placeholder is intentional — the GitHub owner / tap is still
-being chosen. See [ROADMAP §0](ROADMAP.md#0-pending-decisions-block-work) and
-[Track §4 — Homebrew tap](ROADMAP.md#4-homebrew-tap--small-mechanical-after-3).
+The Homebrew tap (`homebrew-fastlane_cli` under
+[bthnkucuk](https://github.com/bthnkucuk)) is created once the first
+tagged release ships — see [ROADMAP §E1](ROADMAP.md). Until then, use the
+"from source" path below.
 
 ### From source (development)
 
 ```bash
-git clone <repo-url> fastlane_cli
+git clone https://github.com/bthnkucuk/fastlane_cli
 cd fastlane_cli
 dart pub get
 dart run bin/fastlane_cli.dart --profile /abs/path/to/cli_profile.yaml

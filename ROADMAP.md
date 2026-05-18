@@ -15,16 +15,13 @@ and promotes to the next wave.
 
 ---
 
-## §0. Blockers *(sequential, ~10 min)*
+## §0. Blockers — resolved
 
-- [ ] **LICENSE choice** — Apache-2.0 or MIT. Add as `LICENSE` at repo root.
-- [ ] **GitHub owner / repo name** — pick the org/user that will host the repo
-      (e.g. `<owner>/fastlane_cli`).
-- [ ] **Brew dep policy** — confirm `depends_on "fastlane"` in the formula
-      (recommended over "user brings their own Ruby"; see [CLAUDE.md §6](CLAUDE.md)).
-
-Until these are answered, the formula + README header + release URLs remain
-templated. Development on all tracks can proceed against placeholders.
+- [x] **LICENSE**: MIT (committed as `LICENSE` at repo root).
+- [x] **GitHub owner / repo**: `bthnkucuk/fastlane_cli`. The future Homebrew
+      tap lives at `bthnkucuk/homebrew-fastlane_cli`.
+- [x] **Brew dep policy**: `depends_on "fastlane"` confirmed in the formula
+      (see [dist/homebrew/Formula/fastlane_cli.rb](dist/homebrew/Formula/fastlane_cli.rb)).
 
 ---
 

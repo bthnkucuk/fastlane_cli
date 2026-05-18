@@ -27,6 +27,6 @@ dart compile exe bin/fastlane_cli.dart -o build/fastlane_cli
 Once the tap repo exists, end-user install will be:
 
 ```sh
-brew tap <owner>/fastlane_cli
+brew tap bthnkucuk/fastlane_cli
 brew install fastlane_cli
 ```

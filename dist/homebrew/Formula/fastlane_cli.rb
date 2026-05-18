@@ -4,40 +4,38 @@
 # Homebrew formula for fastlane_cli.
 #
 # NOTE: This file is a DRAFT living inside the fastlane_cli source repo at
-# dist/homebrew/Formula/. When ROADMAP §0 lands (owner decided), it will be
-# copied / moved into the dedicated tap repo `homebrew-fastlane_cli` at
-# `Formula/fastlane_cli.rb`. Until then, treat the `<owner>` placeholders
-# and `PLACEHOLDER_REPLACED_BY_RELEASE_CI` SHA256 values as templating
-# markers that release CI (Track D2) will substitute on each tag push.
+# dist/homebrew/Formula/. Once the first tagged release ships, it is
+# copied into the dedicated tap repo `bthnkucuk/homebrew-fastlane_cli`
+# at `Formula/fastlane_cli.rb`. The `PLACEHOLDER_REPLACED_BY_RELEASE_CI`
+# sha256 values are templating markers that release CI (Track D2)
+# substitutes on each tag push.
 class FastlaneCli < Formula
   desc "Terminal-first Fastlane assistant for Flutter projects"
-  homepage "https://github.com/<owner>/fastlane_cli"
+  homepage "https://github.com/bthnkucuk/fastlane_cli"
   version "0.1.0"
-  # TODO: confirm with ROADMAP §0 — final choice between Apache-2.0 and MIT.
-  license "Apache-2.0"
+  license "MIT"
 
   depends_on "fastlane"
 
-  # URL + sha256 substitution pattern (Track D2):
-  #   - `<owner>` is replaced with the GitHub org/user once ROADMAP §0 lands.
-  #   - `PLACEHOLDER_REPLACED_BY_RELEASE_CI` is replaced per-tarball by the
-  #     release CI bump job, which reads the sha256 lines from the release
-  #     body produced by `.github/workflows/release.yml`.
-  # The version string above is rewritten in the same pass.
+  # URL + sha256 substitution pattern (Track D2): the
+  # `PLACEHOLDER_REPLACED_BY_RELEASE_CI` markers are rewritten per-tarball
+  # by the release CI bump job, which reads the sha256 lines from the
+  # release body produced by `.github/workflows/release.yml`. The version
+  # string above is rewritten in the same pass.
   on_macos do
     on_arm do
-      url "https://github.com/<owner>/fastlane_cli/releases/download/v0.1.0/fastlane_cli-macos-arm64.tar.gz"
+      url "https://github.com/bthnkucuk/fastlane_cli/releases/download/v0.1.0/fastlane_cli-macos-arm64.tar.gz"
       sha256 "PLACEHOLDER_REPLACED_BY_RELEASE_CI"
     end
     on_intel do
-      url "https://github.com/<owner>/fastlane_cli/releases/download/v0.1.0/fastlane_cli-macos-x86_64.tar.gz"
+      url "https://github.com/bthnkucuk/fastlane_cli/releases/download/v0.1.0/fastlane_cli-macos-x86_64.tar.gz"
       sha256 "PLACEHOLDER_REPLACED_BY_RELEASE_CI"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/<owner>/fastlane_cli/releases/download/v0.1.0/fastlane_cli-linux-x86_64.tar.gz"
+      url "https://github.com/bthnkucuk/fastlane_cli/releases/download/v0.1.0/fastlane_cli-linux-x86_64.tar.gz"
       sha256 "PLACEHOLDER_REPLACED_BY_RELEASE_CI"
     end
     # linux-arm64 intentionally omitted — release.yml does not produce one.
