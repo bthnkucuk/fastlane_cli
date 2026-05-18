@@ -37,6 +37,31 @@ class RunnerResolver {
   /// install layouts without scanning the whole filesystem.
   static const int _maxClimbLevels = 6;
 
+  /// Returns the absolute path of the bundled `skills/` directory.
+  ///
+  /// Resolved as the sibling of the fastlane runner directory: brew install
+  /// places skills under `<prefix>/share/fastlane_cli/skills/` next to
+  /// `<prefix>/share/fastlane_cli/fastlane/`; in the source layout the
+  /// directory is `<repo>/skills/` next to `<repo>/fastlane/`.
+  ///
+  /// Throws [StateError] if the runner itself cannot be resolved, or if the
+  /// runner is found but no `skills/` sibling exists.
+  Future<String> resolveSkillsDirectory({String? profileOverride}) async {
+    final runner = await resolve(profileOverride: profileOverride);
+    final skills = p.normalize(p.join(p.dirname(runner), 'skills'));
+    final dir = Directory(skills);
+    if (!dir.existsSync()) {
+      throw StateError(
+        'Bundled skills/ directory not found next to fastlane runner.\n'
+        '  runner:   $runner\n'
+        '  expected: $skills\n'
+        'Reinstall fastlane_cli so the skills/ tree ships alongside the '
+        'fastlane/ runner.',
+      );
+    }
+    return skills;
+  }
+
   /// Returns the absolute path of the fastlane runner directory.
   ///
   /// Throws [StateError] with all attempted paths if no match is found.

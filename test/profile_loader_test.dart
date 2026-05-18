@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:fastlane_cli/fastlane_cli.dart';
 import 'package:fastlane_cli/src/services/profile_loader.dart';
-import 'package:fastlane_cli/src/services/runner_resolver.dart';
 import 'package:test/test.dart';
 
 /// A [RunnerResolver] that always returns the profile-adjacent `fastlane/`
