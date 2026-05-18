@@ -61,6 +61,35 @@ jobs:
           path: coverage/lcov.info
           retention-days: 7
 
+  ruby_test:
+    # Pure-Ruby specs for fastlane/common_helpers.rb + fastlane/storepilot_bridge.rb.
+    # Runs in parallel with the Dart job so a Ruby regression surfaces immediately
+    # rather than waiting for the Dart suite to finish.
+    #
+    # Matrix on ruby-version: 3.2 is the floor enforced by `fastlane_cli doctor`
+    # (and brew install's depends_on "fastlane" pulls a Ruby that's typically
+    # newer). Adding 3.3 and 3.4 catches forward-incompat early.
+    name: Ruby specs (ruby ${{ matrix.ruby }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["3.2", "3.3", "3.4"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Ruby ${{ matrix.ruby }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          working-directory: fastlane
+          bundler-cache: true
+
+      - name: Run RSpec
+        working-directory: fastlane
+        run: bundle exec rspec
+
   coverage:
     name: Coverage badge
     needs: test

@@ -18,3 +18,15 @@ source "https://rubygems.org"
 
 gem "googleauth"
 gem "google-apis-androidpublisher_v3"
+
+# Test-only deps. The release tarball does NOT ship fastlane/spec/ or
+# fastlane/.rspec (see .github/workflows/release.yml stage step), so end
+# users do not run RSpec. For production installs the Dart CLI bundle
+# wrapper should call `bundle install --without test` (or set
+# `BUNDLE_WITHOUT=test`) to skip these — once the user-cache bundler work
+# in ROADMAP §2 lands. From inside this directory, plain `bundle install`
+# pulls them in for local development.
+group :test do
+  gem "rspec", "~> 3.13"
+  gem "webmock", "~> 3.23"
+end

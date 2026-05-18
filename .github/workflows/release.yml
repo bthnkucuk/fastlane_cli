@@ -98,8 +98,12 @@ jobs:
           # --- Required paths (fail loudly if missing) ----------------------
           cp build/fastlane_cli "$STAGE/build/fastlane_cli"
 
-          # Copy the entire fastlane/ runner tree.
-          cp -R fastlane/. "$STAGE/fastlane/"
+          # Copy the entire fastlane/ runner tree, excluding the RSpec
+          # scaffolding (spec/, .rspec). End users don't run RSpec from the
+          # tarball; carrying it would only bloat the install and (since
+          # rspec/webmock are in fastlane/Gemfile's :test group) wouldn't
+          # force the production bundle to install rspec/webmock.
+          rsync -a --exclude="spec/" --exclude=".rspec" fastlane/ "$STAGE/fastlane/"
 
           # Pull bin/sync_metadata_fallbacks.rb into fastlane/ so the formula
           # install block sweeps it in. Prefer (a) from the Wave 1 D1 note.
