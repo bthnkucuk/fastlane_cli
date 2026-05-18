@@ -325,6 +325,11 @@ source <(fastlane_cli completion zsh)
 fastlane_cli completion fish > ~/.config/fish/completions/fastlane_cli.fish
 ```
 
+For IDE-style inline ghost-text + dropdown completions in **Amazon Q Developer
+CLI for command line** (formerly Fig) and **Kiro CLI**, see
+[`dist/amazon-q-spec/`](dist/amazon-q-spec/) — the same subcommand/flag tree,
+mirrored upstream at `withfig/autocomplete/src/fastlane_cli.ts`.
+
 ## Skills
 
 The CLI ships a set of bundled **Claude Code skills** — natural-language
