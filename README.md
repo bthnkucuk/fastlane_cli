@@ -43,40 +43,81 @@ Requirements:
 
 ## Quickstart
 
-Create a `cli_profile.yaml` somewhere convenient (typically inside your
-Flutter project, next to its own `fastlane/` folder):
+Zero-config path — point `fastlane_cli` at a Flutter app that already has
+`fastlane/cli_profile.yaml` and it discovers everything else:
+
+```bash
+cd /path/to/your-flutter-app
+fastlane_cli                       # auto-discovers fastlane/cli_profile.yaml
+fastlane_cli list                  # enumerate actions
+fastlane_cli doctor                # validate env
+fastlane_cli run get_version_data  # run a lane
+```
+
+On the first run from inside an app, the CLI prints one line to stderr like
+`discovered: /abs/path/to/fastlane/cli_profile.yaml` so you can see where
+the profile came from. The walk-up search climbs up to 8 levels looking for
+the first directory containing both `pubspec.yaml` and
+`fastlane/cli_profile.yaml`, so it works from anywhere inside the project
+tree (e.g. `lib/src/foo/`).
+
+The minimal `cli_profile.yaml`, placed at `<app>/fastlane/cli_profile.yaml`:
 
 ```yaml
 app:
   name: my-app
-  root_path: /abs/path/to/flutter/project
+  root_path: ..                      # project root, relative to this file
   fastlane_path: fastlane            # optional, defaults to "fastlane"
-  fastlane_runner_path: /abs/path/to/fastlane_cli/fastlane  # required until runner auto-resolve lands (ROADMAP §1)
   default_locale: en                 # optional, "tr" by default
 ```
 
-That's the minimum. Everything else — shortcuts, categories, every iOS /
-Android / general action — is inherited from the bundled
+Everything else — shortcuts, categories, every iOS / Android / general
+action — is inherited from the bundled
 [`fastlane/cli_profile.base.yaml`](fastlane/cli_profile.base.yaml). You only
-override entries by re-declaring an `action` / `category` with the same `id`,
-or add new ones by giving them a fresh `id`. See [Where things go](#where-things-go)
-for merge semantics.
+override entries by re-declaring an `action` / `category` with the same
+`id`, or add new ones by giving them a fresh `id`. See
+[Where things go](#where-things-go) for merge semantics.
 
 Identifiers (bundle id, package name) are **not** in the YAML — they're
 passed via env or per-action `command.options`. See
 [Credentials](#credentials).
 
-Run it:
+### `.env` auto-forwarding
+
+When a lane runs, `fastlane_cli` automatically reads and forwards env values
+from three documented locations (in ascending precedence — last wins among
+files; the live shell environment always wins over any file):
+
+1. `<app-root>/.env`
+2. `<app-fastlane-dir>/.env`
+3. `<app-fastlane-dir>/.env.<FASTLANE_FLAVOR>` (only when `FASTLANE_FLAVOR`
+   is set in the shell)
+
+`.env` syntax is intentionally narrow: `key=value` per line, `#` comments,
+optional `export` prefix, single/double quotes stripped. `${VAR}`
+interpolation is **not** supported.
+
+This replaces the legacy `source fastlane/.env && fastlane_cli …`
+incantation. Use `fastlane_cli run <id> --dry-run` to inspect the resolved
+env (secret-looking keys are redacted to `***`).
+
+### Explicit-profile path (scripting / CI)
 
 ```bash
-dart run bin/fastlane_cli.dart --profile /abs/path/to/cli_profile.yaml
+fastlane_cli --profile /abs/path/to/cli_profile.yaml
+fastlane_cli --profile /abs/path/to/some-app-dir   # or a directory
 ```
+
+`--profile` accepts either a `cli_profile.yaml` file path or a directory
+(in which case `cli_profile.yaml` and `fastlane/cli_profile.yaml` are
+probed inside it).
 
 CLI flags:
 
-- `--profile <path>` — profile YAML path (required)
+- `--profile <path>` — explicit profile file or app dir (optional;
+  auto-discovered otherwise)
 - `--lang tr|en` — override UI language
-- `--dry-run` — print resolved commands without executing
+- `--dry-run` — print resolved commands + env without executing
 
 ## Credentials
 
@@ -143,16 +184,23 @@ at this repo's `fastlane/` directory. Runner auto-resolution is tracked in
 ## Subcommand reference
 
 > **Profile resolution.** Every subcommand that needs a profile looks it up in
-> a fixed three-tier order (implemented in
+> a fixed four-tier order (implemented in
 > [`lib/src/cli/profile_resolver.dart`](lib/src/cli/profile_resolver.dart)):
 >
-> 1. `--profile <path>` (or `-p <path>`) on the command line.
-> 2. `$FASTLANE_CLI_PROFILE` environment variable.
-> 3. `./cli_profile.yaml` in the current working directory.
+> 1. `--profile <path>` (or `-p <path>`) on the command line. May be a
+>    `cli_profile.yaml` file OR a directory (we probe `cli_profile.yaml`
+>    then `fastlane/cli_profile.yaml` inside it).
+> 2. `$FASTLANE_CLI_PROFILE` environment variable (same file-or-dir rules).
+> 3. Walk-up app discovery: from the current working directory, climb up
+>    to 8 levels looking for the first dir containing both `pubspec.yaml`
+>    and `fastlane/cli_profile.yaml`.
+> 4. `./cli_profile.yaml` in the current working directory.
 >
-> If none of the three points at an existing file, the command exits `66`
-> (`EX_NOINPUT`) and prints all three tried locations plus a remediation
-> hint.
+> When discovery (#1-dir, #2-dir, or #3) resolves the profile, the CLI
+> prints one line to stderr: `discovered: <abs-path>`.
+>
+> If none of the four points at an existing file, the command exits `66`
+> (`EX_NOINPUT`) and prints every tried location plus a remediation hint.
 
 ### `fastlane_cli` (no subcommand) — TUI
 

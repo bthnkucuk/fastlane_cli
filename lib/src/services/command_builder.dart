@@ -6,14 +6,23 @@ import '../model/cli_action.dart';
 import '../model/cli_profile.dart';
 import '../model/command_request.dart';
 import 'bundle_cache.dart';
+import 'env_file_loader.dart';
 
 class CommandBuilder {
-  const CommandBuilder({BundleCache? bundleCache}) : _bundleCache = bundleCache;
+  const CommandBuilder({
+    BundleCache? bundleCache,
+    Map<String, String>? environment,
+  }) : _bundleCache = bundleCache,
+       _environmentOverride = environment;
 
   final BundleCache? _bundleCache;
+  final Map<String, String>? _environmentOverride;
 
   BundleCache get _resolvedBundleCache =>
       _bundleCache ?? BundleCache.fromPlatform();
+
+  Map<String, String> get _environment =>
+      _environmentOverride ?? Platform.environment;
 
   CommandRequest build({
     required CliProfile profile,
@@ -72,7 +81,10 @@ class CommandBuilder {
       args.add('${entry.key}:${entry.value}');
     }
 
-    final dotenvValues = _readDotEnv(profile.fastlaneDirectoryPath);
+    final dotenvValues = _loadAppEnvFiles(
+      fastlaneDirectoryPath: profile.fastlaneDirectoryPath,
+      appRootPath: profile.appRootPath,
+    );
     final bundlePath = _resolvedBundleCache.resolvePath();
 
     return CommandRequest(
@@ -132,34 +144,28 @@ class CommandBuilder {
     );
   }
 
-  Map<String, String> _readDotEnv(String fastlaneDirectoryPath) {
-    final envFile = File(p.join(fastlaneDirectoryPath, '.env'));
-    if (!envFile.existsSync()) {
-      return const <String, String>{};
+  /// Discover and merge the app-side `.env` files for a fastlane child.
+  ///
+  /// Precedence (lowest → highest, i.e. later wins among files):
+  ///   1. `<app-root>/.env`
+  ///   2. `<app-fastlane-dir>/.env`
+  ///   3. `<app-fastlane-dir>/.env.<FASTLANE_FLAVOR>` (only when set)
+  ///
+  /// The live shell environment always overrides the files — a value the
+  /// user has explicitly exported must not be silently dropped. See
+  /// [loadEnvFiles] for the parser contract.
+  Map<String, String> _loadAppEnvFiles({
+    required String fastlaneDirectoryPath,
+    required String appRootPath,
+  }) {
+    final files = <File>[
+      File(p.join(appRootPath, '.env')),
+      File(p.join(fastlaneDirectoryPath, '.env')),
+    ];
+    final flavor = _environment['FASTLANE_FLAVOR']?.trim();
+    if (flavor != null && flavor.isNotEmpty) {
+      files.add(File(p.join(fastlaneDirectoryPath, '.env.$flavor')));
     }
-
-    final result = <String, String>{};
-    for (final rawLine in envFile.readAsLinesSync()) {
-      final line = rawLine.trim();
-      if (line.isEmpty || line.startsWith('#')) {
-        continue;
-      }
-      final separator = line.indexOf('=');
-      if (separator <= 0) {
-        continue;
-      }
-
-      final key = line.substring(0, separator).trim();
-      if (key.isEmpty) {
-        continue;
-      }
-      var value = line.substring(separator + 1).trim();
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.substring(1, value.length - 1);
-      }
-      result[key] = value;
-    }
-    return result;
+    return loadEnvFiles(files, _environment);
   }
 }

@@ -60,6 +60,35 @@ String _unixShellWord(String arg) {
   return "'${arg.replaceAll("'", "'\\''")}'";
 }
 
+/// Patterns (case-insensitive substrings of the env-key name) whose values
+/// must be redacted in any logged output. Mirrors the Ruby-side
+/// `SUMMARY_BOX_SECRET_KEY_PATTERNS` in `fastlane/common_helpers.rb` so the
+/// Dart-side dry-run logger does not leak secrets when the user has loaded
+/// credentials via `fastlane/.env`.
+const List<String> _secretKeyPatterns = <String>[
+  'password',
+  'api_key',
+  'api-key',
+  'secret',
+  'token',
+  'private_key',
+  'json_key_data',
+  'client_secret',
+  'authorization',
+  'auth',
+];
+
+String _redactEnvValue(String key, String value) {
+  if (value.isEmpty) return value;
+  final lowerKey = key.toLowerCase();
+  for (final pattern in _secretKeyPatterns) {
+    if (lowerKey.contains(pattern)) {
+      return '***';
+    }
+  }
+  return value;
+}
+
 class CommandLogEvent {
   const CommandLogEvent({required this.message, required this.isError});
 
@@ -260,6 +289,31 @@ class ProcessCommandExecutionService implements CommandExecutionService {
     required void Function(CommandLogEvent event) onLog,
   }) async {
     if (dryRun) {
+      onLog(
+        CommandLogEvent(
+          message: '[dry-run] cwd=${request.workingDirectory}',
+          isError: false,
+        ),
+      );
+      if (request.environment.isNotEmpty) {
+        onLog(
+          CommandLogEvent(
+            message: '[dry-run] env (${request.environment.length} keys):',
+            isError: false,
+          ),
+        );
+        final keys = request.environment.keys.toList()..sort();
+        for (final key in keys) {
+          final value = request.environment[key] ?? '';
+          final shown = _redactEnvValue(key, value);
+          onLog(
+            CommandLogEvent(
+              message: '[dry-run]   $key=$shown',
+              isError: false,
+            ),
+          );
+        }
+      }
       onLog(
         CommandLogEvent(
           message: '[dry-run] ${request.displayCommand}',
