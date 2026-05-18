@@ -1,5 +1,7 @@
 # fastlane_cli
 
+![coverage](https://img.shields.io/badge/coverage-0.0%25-red)
+
 A terminal-first Fastlane assistant for Flutter projects. Drop a
 `cli_profile.yaml` next to your own `fastlane/` folder and `fastlane_cli`
 exposes your iOS + Android lanes through a categorized TUI (sidebar, slash
