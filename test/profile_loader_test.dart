@@ -2,7 +2,34 @@ import 'dart:io';
 
 import 'package:fastlane_cli/fastlane_cli.dart';
 import 'package:fastlane_cli/src/services/profile_loader.dart';
+import 'package:fastlane_cli/src/services/runner_resolver.dart';
 import 'package:test/test.dart';
+
+/// A [RunnerResolver] that always returns the profile-adjacent `fastlane/`
+/// directory (created by the test fixtures). Lets profile-loader tests assert
+/// loader behaviour without depending on the host's real fastlane runner being
+/// discoverable via [Platform.resolvedExecutable] or `Isolate.resolvePackageUri`.
+class _FakeRunnerResolver extends RunnerResolver {
+  _FakeRunnerResolver(this._fastlaneDir);
+
+  final String _fastlaneDir;
+
+  @override
+  Future<String> resolve({String? profileOverride}) async {
+    if (profileOverride != null && profileOverride.trim().isNotEmpty) {
+      return profileOverride;
+    }
+    return _fastlaneDir;
+  }
+}
+
+/// Creates the supplied `fastlane/` directory and seeds an empty `Fastfile`
+/// so the real [RunnerResolver] also accepts it as a valid runner.
+Directory _seedFastlaneDir(String path) {
+  final dir = Directory(path)..createSync(recursive: true);
+  File('${dir.path}/Fastfile').writeAsStringSync('# stub');
+  return dir;
+}
 
 void main() {
   group('ProfileLoader', () {
@@ -14,11 +41,13 @@ void main() {
 
       final appRoot = Directory('${temp.path}/app')
         ..createSync(recursive: true);
-      final profileFile = File('${appRoot.path}/fastlane/cli_profile.yaml')
-        ..createSync(recursive: true)
+      final fastlaneDir = _seedFastlaneDir('${appRoot.path}/fastlane');
+      final profileFile = File('${fastlaneDir.path}/cli_profile.yaml')
         ..writeAsStringSync(_validProfileYaml);
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
       final profile = await loader.load(profileFile.path);
 
       expect(profile.appName, 'ExampleApp');
@@ -39,7 +68,9 @@ void main() {
     });
 
     test('throws when profile file is missing', () async {
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver('/tmp'),
+      );
       expect(
         () => loader.load('/nonexistent/path/cli_profile.yaml'),
         throwsA(
@@ -59,7 +90,9 @@ void main() {
       final profileFile = File('${temp.path}/cli_profile.yaml')
         ..writeAsStringSync('just a string');
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(temp.path),
+      );
       expect(
         () => loader.load(profileFile.path),
         throwsA(
@@ -76,10 +109,13 @@ void main() {
       );
       addTearDown(() => temp.delete(recursive: true));
 
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
       final profileFile = File('${temp.path}/cli_profile.yaml')
         ..writeAsStringSync(_shortcutInvalidYaml);
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
       expect(() => loader.load(profileFile.path), throwsFormatException);
     });
 
@@ -89,10 +125,13 @@ void main() {
       );
       addTearDown(() => temp.delete(recursive: true));
 
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
       final profileFile = File('${temp.path}/cli_profile.yaml')
         ..writeAsStringSync(_categoriesNotListYaml);
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
       expect(() => loader.load(profileFile.path), throwsFormatException);
     });
 
@@ -102,15 +141,17 @@ void main() {
       );
       addTearDown(() => temp.delete(recursive: true));
 
-      Directory('${temp.path}/fastlane').createSync(recursive: true);
-      File('${temp.path}/fastlane/cli_profile.base.yaml').writeAsStringSync(
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
+      File('${fastlaneDir.path}/cli_profile.base.yaml').writeAsStringSync(
         'not_a_map',
       );
       File('${temp.path}/cli_profile.yaml').writeAsStringSync(
         _overlayOnlyProfileYaml,
       );
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
       final profile = await loader.load('${temp.path}/cli_profile.yaml');
 
       expect(profile.actionsById.containsKey('only_here'), isTrue);
@@ -122,13 +163,15 @@ void main() {
       );
       addTearDown(() => temp.delete(recursive: true));
 
-      Directory('${temp.path}/fastlane').createSync(recursive: true);
-      File('${temp.path}/fastlane/cli_profile.base.yaml').writeAsStringSync(
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
+      File('${fastlaneDir.path}/cli_profile.base.yaml').writeAsStringSync(
         _baseProfileYaml,
       );
       File('${temp.path}/cli_profile.yaml').writeAsStringSync(_overlayMergeYaml);
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
       final profile = await loader.load('${temp.path}/cli_profile.yaml');
 
       expect(profile.appName, 'OverlayApp');
@@ -142,10 +185,13 @@ void main() {
       );
       addTearDown(() => temp.delete(recursive: true));
 
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
       final profileFile = File('${temp.path}/cli_profile.yaml')
         ..writeAsStringSync(_plainTitleCategoryYaml);
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
       final profile = await loader.load(profileFile.path);
 
       expect(profile.categories.single.title[LocaleCode.tr], 'Plain');
@@ -158,10 +204,13 @@ void main() {
       );
       addTearDown(() => temp.delete(recursive: true));
 
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
       final profileFile = File('${temp.path}/cli_profile.yaml')
         ..writeAsStringSync(_stringBoolYaml);
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
       final profile = await loader.load(profileFile.path);
 
       final action = profile.actionsById['str_bool']!;
@@ -175,10 +224,13 @@ void main() {
       );
       addTearDown(() => temp.delete(recursive: true));
 
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
       final profileFile = File('${temp.path}/cli_profile.yaml')
         ..writeAsStringSync(_invalidProfileYaml);
 
-      final loader = const ProfileLoader();
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
       expect(
         () => loader.load(profileFile.path),
         throwsA(isA<FormatException>()),

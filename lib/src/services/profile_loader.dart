@@ -7,9 +7,13 @@ import '../localization/locale_code.dart';
 import '../model/cli_action.dart';
 import '../model/cli_category.dart';
 import '../model/cli_profile.dart';
+import 'runner_resolver.dart';
 
 class ProfileLoader {
-  const ProfileLoader();
+  const ProfileLoader({RunnerResolver runnerResolver = const RunnerResolver()})
+    : _runnerResolver = runnerResolver;
+
+  final RunnerResolver _runnerResolver;
 
   Future<CliProfile> load(String profilePath) async {
     final profileFile = File(profilePath);
@@ -25,22 +29,35 @@ class ProfileLoader {
 
     final appRoot = _yamlMapToMap(yaml);
     final profileDirectory = profileFile.parent.absolute.path;
-    final root = _maybeMergeBaseProfile(appRoot, profileDirectory);
+
+    // Resolve the runner directory once, before merging, so that the bundled
+    // `cli_profile.base.yaml` can be located even when the profile omits
+    // `fastlane_runner_path`.
+    final runnerOverride = _readRunnerOverride(appRoot, profileDirectory);
+    final resolvedRunnerDir = await _runnerResolver.resolve(
+      profileOverride: runnerOverride,
+    );
+
+    final root = _maybeMergeBaseProfile(appRoot, resolvedRunnerDir);
 
     final appMap = _requireMap(root, 'app');
     final appName = _requireString(appMap, 'name');
     final appRootRaw = _requireString(appMap, 'root_path');
     final fastlanePath = _stringOrDefault(appMap, 'fastlane_path', 'fastlane');
-    final fastlaneRunnerPath = _stringOrDefault(
-      appMap,
-      'fastlane_runner_path',
-      fastlanePath,
-    );
 
     final appRootPath = p.normalize(
       p.isAbsolute(appRootRaw)
           ? appRootRaw
           : p.join(profileDirectory, appRootRaw),
+    );
+
+    // Store the runner path so that `CliProfile.fastlaneRunnerDirectoryPath`
+    // (which joins it under appRootPath) resolves back to the absolute path
+    // we just discovered. A relative path keeps the existing model's
+    // `$appRootPath/$fastlaneRunnerPath` join semantics intact.
+    final fastlaneRunnerPath = p.relative(
+      resolvedRunnerDir,
+      from: appRootPath,
     );
 
     final defaultLocale = LocaleCode.parse(
@@ -69,15 +86,24 @@ class ProfileLoader {
     );
   }
 
-  Map<String, Object?> _maybeMergeBaseProfile(
+  /// Reads `app.fastlane_runner_path` from the unmerged profile and, if
+  /// relative, resolves it against the profile directory's nearest plausible
+  /// `app.root_path`. Returns `null` when the field is absent or empty so the
+  /// runner resolver can fall through to its auto-detection branches.
+  String? _readRunnerOverride(
     Map<String, Object?> appRoot,
     String profileDirectory,
   ) {
     final appMap = appRoot['app'];
     if (appMap is! Map) {
-      return appRoot;
+      return null;
     }
     final appOnly = appMap.map((key, value) => MapEntry(key.toString(), value));
+
+    final runnerRaw = appOnly['fastlane_runner_path'];
+    if (runnerRaw is! String || runnerRaw.trim().isEmpty) {
+      return null;
+    }
 
     final appRootRaw = _stringOrDefault(appOnly, 'root_path', '.');
     final appRootAbs = p.normalize(
@@ -85,15 +111,17 @@ class ProfileLoader {
           ? appRootRaw
           : p.join(profileDirectory, appRootRaw),
     );
-    final runnerRaw = _stringOrDefault(
-      appOnly,
-      'fastlane_runner_path',
-      _stringOrDefault(appOnly, 'fastlane_path', 'fastlane'),
+    final trimmed = runnerRaw.trim();
+    return p.normalize(
+      p.isAbsolute(trimmed) ? trimmed : p.join(appRootAbs, trimmed),
     );
-    final runnerPath = p.normalize(
-      p.isAbsolute(runnerRaw) ? runnerRaw : p.join(appRootAbs, runnerRaw),
-    );
-    final baseFile = File(p.join(runnerPath, 'cli_profile.base.yaml'));
+  }
+
+  Map<String, Object?> _maybeMergeBaseProfile(
+    Map<String, Object?> appRoot,
+    String resolvedRunnerDir,
+  ) {
+    final baseFile = File(p.join(resolvedRunnerDir, 'cli_profile.base.yaml'));
     if (!baseFile.existsSync()) {
       return appRoot;
     }
