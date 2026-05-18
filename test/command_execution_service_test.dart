@@ -57,5 +57,33 @@ void main() {
       },
       skip: Platform.isWindows ? 'POSIX shell only' : false,
     );
+
+    test(
+      'deregisters child from ProcessSupervisor on natural exit',
+      () async {
+        await ProcessSupervisor.instance.resetForTesting();
+        final service = ProcessCommandExecutionService(useUnixPty: false);
+        final temp =
+            await Directory.systemTemp.createTemp('fastlane_cli_exec_reg');
+        addTearDown(() => temp.delete(recursive: true));
+
+        final events = <CommandLogEvent>[];
+        await service.run(
+          CommandRequest(
+            executable: '/bin/sh',
+            arguments: <String>['-c', 'echo done'],
+            workingDirectory: temp.path,
+            environment: const <String, String>{},
+          ),
+          dryRun: false,
+          onLog: events.add,
+        );
+
+        // Allow the auto-deregister microtask to drain.
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(ProcessSupervisor.instance.liveCount, 0);
+      },
+      skip: Platform.isWindows ? 'POSIX shell only' : false,
+    );
   });
 }

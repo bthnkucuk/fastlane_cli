@@ -3,6 +3,7 @@ import 'package:zenrouter_nocterm/zenrouter_nocterm.dart';
 
 import '../localization/i18n/strings.g.dart';
 import '../model/palette_suggestion.dart';
+import '../services/command_execution_service.dart';
 import 'app_route.dart';
 import 'command_palette_path.dart';
 import 'environment.dart';
@@ -118,6 +119,12 @@ class FastlaneCliCoordinator extends Coordinator<AppRoute> {
   }
 
   /// Push a confirmation dialog and shut the app down on approval.
+  ///
+  /// On approval, we MUST tear down every live child `bundle exec fastlane …`
+  /// process via [ProcessSupervisor.shutdownAll] before calling nocterm's
+  /// `shutdownApp`. `shutdownApp` only tears down the TUI runtime — it does
+  /// not know about the spawned Ruby children, so without this teardown the
+  /// child would outlive the Dart parent.
   void confirmQuit() {
     // ignore: unawaited_futures
     overlayPath.push(
@@ -126,9 +133,26 @@ class FastlaneCliCoordinator extends Coordinator<AppRoute> {
         message: t.quitConfirmMessage,
         approveLabel: t.runConfirmApprove,
         cancelLabel: t.runConfirmCancel,
-        onConfirm: shutdownApp,
+        onConfirm: _quitWithTeardown,
       ),
     );
+  }
+
+  /// Tear down every live child process supervised by [ProcessSupervisor],
+  /// then ask nocterm to shut the TUI down. Public so tests can drive it
+  /// without spinning up a real TUI.
+  Future<void> shutdownWithTeardown() async {
+    await ProcessSupervisor.instance.shutdownAll();
+    shutdownApp();
+  }
+
+  void _quitWithTeardown() {
+    // The dialog handler is synchronous (VoidCallback). Fire-and-forget the
+    // teardown future; shutdownApp() is invoked inside shutdownWithTeardown
+    // after every supervised child has either exited gracefully or been
+    // SIGKILL'd, so we won't return to a TUI that has already disappeared.
+    // ignore: unawaited_futures
+    shutdownWithTeardown();
   }
 
   /// Focus an existing run tab if open; otherwise open a new one and start
