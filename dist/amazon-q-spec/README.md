@@ -89,5 +89,5 @@ on demand.
 ## Upstream PR
 
 This spec is mirrored upstream at
-`withfig/autocomplete/src/fastlane_cli.ts`. The PR URL will be filled in
-once the upstream PR is opened.
+`withfig/autocomplete/src/fastlane_cli.ts`. Upstream PR:
+[withfig/autocomplete#2625](https://github.com/withfig/autocomplete/pull/2625).
