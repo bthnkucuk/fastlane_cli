@@ -51,14 +51,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # pubspec.yaml floor is `>=3.11.0 <4.0.0`. Using `sdk: stable` keeps the
-      # workflow forward-compatible without manual bumps — stable has satisfied
-      # the floor since Dart 3.11 shipped. If a future SDK breaks us, pin here
-      # to a 3.11.x release explicitly.
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
+      # zenrouter_nocterm (git dep) declares `sdk: flutter` in its pubspec, so
+      # `dart pub get` refuses to resolve without the Flutter toolchain on
+      # PATH. Install Flutter; Dart ships bundled and `dart` works for our
+      # compile/test pipeline below.
+      - name: Set up Flutter (provides Dart)
+        uses: subosito/flutter-action@v2
         with:
-          sdk: stable
+          flutter-version: "3.41.0"
+          channel: stable
+          cache: true
 
       - name: Install dependencies
         run: dart pub get
