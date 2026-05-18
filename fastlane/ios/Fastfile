@@ -656,6 +656,26 @@ platform :ios do
       app_identifier: app_identifier
 
     )
+
+    locales = []
+    if Dir.exist?(metadata_path)
+      locales = Dir.children(metadata_path).select do |entry|
+        File.directory?(File.join(metadata_path, entry)) &&
+          !entry.start_with?(".") &&
+          !FastlaneCliConfig::METADATA_NON_LOCALE_DIRS.include?(entry)
+      end.sort
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · Promotional metadata yüklendi",
+      [
+        "App identifier      : #{app_identifier}",
+        "Metadata path       : #{metadata_path}",
+        "Locales             : #{locales.empty? ? '(none)' : locales.join(', ')}",
+        "Include screenshots : #{include_screenshots}",
+        "Include binary      : #{include_binary}"
+      ]
+    )
   end
 
   desc "Download App Store metadata into fastlane path"

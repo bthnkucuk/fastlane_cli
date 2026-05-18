@@ -427,6 +427,27 @@ platform :android do
     supply_params[:version_code] = version_code unless version_code.nil?
 
     supply(**supply_params)
+
+    locales = []
+    if Dir.exist?(metadata_path)
+      locales = Dir.children(metadata_path).select do |entry|
+        File.directory?(File.join(metadata_path, entry)) && !entry.start_with?(".")
+      end.sort
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Play Store metadata yüklendi",
+      [
+        "Package             : #{package_name}",
+        "Track               : #{track}",
+        "Metadata path       : #{metadata_path}",
+        "Locales             : #{locales.empty? ? '(none)' : locales.join(', ')}",
+        "Include images      : #{include_images}",
+        "Include screenshots : #{include_screenshots}",
+        "Include changelogs  : #{include_changelogs}",
+        "Version code        : #{version_code || '(skipped)'}"
+      ]
+    )
   end
 
   desc "Download Android Play Store listing assets (metadata, screenshots, changelogs)"
@@ -453,5 +474,23 @@ platform :android do
 
     download_from_play_store(**download_options)
     UI.success("✅ Play Store listing downloaded to #{metadata_path}")
+
+    locales = []
+    if Dir.exist?(metadata_path)
+      locales = Dir.children(metadata_path).select do |entry|
+        File.directory?(File.join(metadata_path, entry)) && !entry.start_with?(".")
+      end.sort
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Play Store listing indirildi",
+      [
+        "Package       : #{package_name}",
+        "Track         : #{track}",
+        "Output path   : #{metadata_path}",
+        "Locales       : #{locales.empty? ? '(none)' : locales.join(', ')}",
+        "Version name  : #{version_name.empty? ? '(latest)' : version_name}"
+      ]
+    )
   end
 end

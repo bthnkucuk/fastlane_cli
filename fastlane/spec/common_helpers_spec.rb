@@ -329,6 +329,80 @@ RSpec.describe FastlaneCliConfig do
     end
   end
 
+  describe ".redact_secret_value" do
+    it "redacts password: ..." do
+      expect(described_class.redact_secret_value("password: secret123"))
+        .to eq("password: ***")
+    end
+
+    it "redacts api_key= ... (equals delimiter)" do
+      expect(described_class.redact_secret_value("api_key=AKIAEXAMPLE"))
+        .to eq("api_key=***")
+    end
+
+    it "is case insensitive (API_KEY)" do
+      expect(described_class.redact_secret_value("API_KEY: AKIAEXAMPLE"))
+        .to eq("API_KEY: ***")
+    end
+
+    it "redacts token: Bearer xyz" do
+      expect(described_class.redact_secret_value("token: Bearer xyz.abc.def"))
+        .to eq("token: ***")
+    end
+
+    it "redacts json_key_data: {...}" do
+      expect(described_class.redact_secret_value('json_key_data: {"type":"service_account"}'))
+        .to eq("json_key_data: ***")
+    end
+
+    it "redacts api-key (dash variant)" do
+      expect(described_class.redact_secret_value("api-key: AKIA-DASH"))
+        .to eq("api-key: ***")
+    end
+
+    it "redacts private_key=..." do
+      expect(described_class.redact_secret_value("private_key=-----BEGIN..."))
+        .to eq("private_key=***")
+    end
+
+    it "redacts client_secret: ..." do
+      expect(described_class.redact_secret_value("client_secret: abcdef"))
+        .to eq("client_secret: ***")
+    end
+
+    it "redacts authorization: Bearer ..." do
+      expect(described_class.redact_secret_value("Authorization: Bearer eyJhbGciOi"))
+        .to eq("Authorization: ***")
+    end
+
+    it "passes plain non-sensitive lines through unchanged" do
+      expect(described_class.redact_secret_value("build: 42")).to eq("build: 42")
+      expect(described_class.redact_secret_value("App identifier : com.example.app"))
+        .to eq("App identifier : com.example.app")
+    end
+
+    it "leaves nil untouched" do
+      expect(described_class.redact_secret_value(nil)).to be_nil
+    end
+  end
+
+  describe ".summary_box redaction integration" do
+    it "redacts secret-bearing lines before rendering" do
+      ENV["NO_COLOR"] = "1"
+      lines = described_class.summary_box("Auth", [
+        "App identifier : com.example.app",
+        "api_key: AKIAEXAMPLESECRET",
+        "token: Bearer eyJabc.def.ghi"
+      ])
+      body = lines.join("\n")
+      expect(body).to include("api_key: ***")
+      expect(body).to include("token: ***")
+      expect(body).not_to include("AKIAEXAMPLESECRET")
+      expect(body).not_to include("eyJabc.def.ghi")
+      expect(body).to include("com.example.app")
+    end
+  end
+
   describe ".print_summary_box" do
     it "writes to puts when sink is :stdout and UI is undefined" do
       # Force the puts branch by using sink: :stdout

@@ -667,6 +667,47 @@ module FastlaneCliConfig
   SUMMARY_BOX_RESET = "\e[0m"
   SUMMARY_BOX_WIDTH = 78
 
+  # Keys whose trailing value should be replaced with `***` before a line is
+  # rendered into the summary box. The doc claim in CLAUDE.md §5.3 ("the
+  # helper auto-redacts known sensitive keys") relies on this list — keep it
+  # in sync if you add a new sensitive identifier elsewhere.
+  #
+  # Patterns are matched case-insensitively at a word boundary, followed by an
+  # optional ANSI colour run, an optional whitespace gap, then `:` or `=`,
+  # then the value through end-of-line. Replacement keeps the key + delimiter
+  # so the structure stays legible (`api_key: ***`).
+  SUMMARY_BOX_SECRET_KEY_PATTERNS = [
+    /\bpassword\b/i,
+    /\bapi[_-]?key\b/i,
+    /\bsecret\b/i,
+    /\btoken\b/i,
+    /\bprivate[_-]?key\b/i,
+    /\bjson[_-]?key[_-]?data\b/i,
+    /\bclient[_-]?secret\b/i,
+    /\bauthorization\b/i,
+    /\bauth\b/i
+  ].freeze
+
+  # Joined alternation used by the redaction regex. Built once.
+  SUMMARY_BOX_SECRET_KEY_ALTERNATION = Regexp.union(SUMMARY_BOX_SECRET_KEY_PATTERNS).freeze
+
+  # Matches `<key><optional spaces><: or =><value to end>` — the value is the
+  # capture group we overwrite with `***`. The key itself is preserved so the
+  # rendered line stays human-readable.
+  SUMMARY_BOX_REDACTION_REGEX = /(#{SUMMARY_BOX_SECRET_KEY_ALTERNATION}\s*[:=]\s*)\S.*/i
+
+  # Scans a single rendered line for known sensitive keys and replaces the
+  # value portion with `***`. Returns the line unchanged if no pattern hits.
+  # Safe to call on lines containing ANSI escape sequences — the regex only
+  # matches the literal key tokens.
+  def redact_secret_value(line)
+    return line if line.nil?
+
+    line.to_s.gsub(SUMMARY_BOX_REDACTION_REGEX) do
+      "#{Regexp.last_match(1)}***"
+    end
+  end
+
   def color_enabled?
     !ENV["NO_COLOR"].to_s.empty? ? false : true
   end
@@ -704,7 +745,8 @@ module FastlaneCliConfig
       if line == :sep
         [sep]
       else
-        wrap_summary_line(line.to_s, inner_width).map do |chunk|
+        redacted = redact_secret_value(line.to_s)
+        wrap_summary_line(redacted, inner_width).map do |chunk|
           "#{bar} #{pad_to_width(chunk, inner_width)} #{bar}"
         end
       end

@@ -136,6 +136,10 @@ caller's profile or env, not here.
   `FASTLANE_APP_IDENTIFIER` OR via profile/option args.
 
 Never log secrets. The summary box helper auto-redacts known sensitive keys.
+Redacted patterns (case-insensitive, value after `:` or `=` becomes `***`):
+`password`, `api_key` / `api-key`, `secret`, `token`, `private_key`,
+`json_key_data`, `client_secret`, `authorization`, `auth`. See
+`SUMMARY_BOX_SECRET_KEY_PATTERNS` in `fastlane/common_helpers.rb`.
 
 ### 5.4 Vendor bundle stays out of git
 `fastlane/vendor/` and `fastlane/.bundle/` are git-ignored. Local dev currently
