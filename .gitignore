@@ -11,7 +11,8 @@ coverage/
 # IDE
 .idea/
 *.iml
-.vscode/
+.vscode/*
+!.vscode/settings.json
 *.code-workspace
 
 # macOS
@@ -24,3 +25,6 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/test_output/
 .claude/worktrees/
+
+# FVM Version Cache
+.fvm/
