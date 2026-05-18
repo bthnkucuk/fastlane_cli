@@ -19,5 +19,6 @@ export 'src/routing/routes/home_route.dart';
 export 'src/routing/routes/palette_route.dart';
 export 'src/routing/routes/quick_actions_route.dart';
 export 'src/routing/routes/run_route.dart';
+export 'src/services/bundle_cache.dart';
 export 'src/services/command_builder.dart';
 export 'src/services/preflight_validator.dart';

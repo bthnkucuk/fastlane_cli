@@ -5,9 +5,15 @@ import 'package:path/path.dart' as p;
 import '../model/cli_action.dart';
 import '../model/cli_profile.dart';
 import '../model/command_request.dart';
+import 'bundle_cache.dart';
 
 class CommandBuilder {
-  const CommandBuilder();
+  const CommandBuilder({BundleCache? bundleCache}) : _bundleCache = bundleCache;
+
+  final BundleCache? _bundleCache;
+
+  BundleCache get _resolvedBundleCache =>
+      _bundleCache ?? BundleCache.fromPlatform();
 
   CommandRequest build({
     required CliProfile profile,
@@ -67,6 +73,7 @@ class CommandBuilder {
     }
 
     final dotenvValues = _readDotEnv(profile.fastlaneDirectoryPath);
+    final bundlePath = _resolvedBundleCache.resolvePath();
 
     return CommandRequest(
       executable: 'bundle',
@@ -75,6 +82,7 @@ class CommandBuilder {
       environment: <String, String>{
         ...dotenvValues,
         'BUNDLE_GEMFILE': gemfilePath,
+        'BUNDLE_PATH': bundlePath,
         'FASTLANE_ROOT': profile.fastlaneDirectoryPath,
         'FASTLANE_APP_ROOT': profile.appRootPath,
         'FASTLANE_CLI_FASTLANE_PATH': runnerFastlaneDirectory,

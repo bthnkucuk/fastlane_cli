@@ -6,6 +6,19 @@ import 'package:test/test.dart';
 
 import 'support/profile_factory.dart';
 
+// Deterministic BundleCache stand-in so tests do not depend on whether the
+// host shell exports `RUBY_VERSION` / `XDG_CACHE_HOME` / `HOME`.
+const _testBundleCache = BundleCache(
+  isMacOS: true,
+  isLinux: false,
+  environment: <String, String>{
+    'HOME': '/Users/test',
+    'RUBY_VERSION': '3.2.4',
+  },
+);
+const _expectedBundlePath =
+    '/Users/test/Library/Caches/fastlane_cli/bundle/ruby-3.2.4';
+
 void main() {
   group('CommandBuilder', () {
     test('builds fastlane command with bundle gemfile env', () async {
@@ -48,7 +61,7 @@ void main() {
         ],
       );
 
-      final builder = const CommandBuilder();
+      final builder = const CommandBuilder(bundleCache: _testBundleCache);
       final request = builder.build(profile: profile, action: action);
 
       expect(request.executable, 'bundle');
@@ -60,6 +73,7 @@ void main() {
         'flavor:example',
       ]);
       expect(request.environment['BUNDLE_GEMFILE'], gemfile.path);
+      expect(request.environment['BUNDLE_PATH'], _expectedBundlePath);
       expect(request.environment['FASTLANE_ROOT'], '${temp.path}/fastlane');
       expect(request.workingDirectory, temp.path);
     });
@@ -229,9 +243,11 @@ void main() {
         ],
       );
 
-      final request = const CommandBuilder().build(profile: profile, action: action);
+      final request = const CommandBuilder(bundleCache: _testBundleCache)
+          .build(profile: profile, action: action);
 
       expect(request.arguments, <String>['exec', 'fastlane', 'noop']);
+      expect(request.environment['BUNDLE_PATH'], _expectedBundlePath);
     });
 
     test('loads dotenv into environment for fastlane', () async {
@@ -272,10 +288,12 @@ void main() {
         ],
       );
 
-      final request = const CommandBuilder().build(profile: profile, action: action);
+      final request = const CommandBuilder(bundleCache: _testBundleCache)
+          .build(profile: profile, action: action);
 
       expect(request.environment['FOO'], 'bar');
       expect(request.environment['QUOTED'], 'baz');
+      expect(request.environment['BUNDLE_PATH'], _expectedBundlePath);
     });
 
     test('throws when fastlane lane is missing', () {
