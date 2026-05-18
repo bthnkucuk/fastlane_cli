@@ -1,0 +1,189 @@
+# Release pipeline — Track D1 (Wave 1 skeleton)
+#
+# Builds platform-specific tarballs of the fastlane_cli binary + its Ruby/Fastlane
+# runner assets, computes sha256 checksums, and attaches them to a GitHub Release.
+#
+# Triggered on semver-style tag push (v*.*.*). The tarball shape will be
+# finalised in Wave 3; for now `skills/` and `LICENSE` are tolerated as
+# optional (Track C1 ships `skills/`, §0 decides `LICENSE`).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  # Needed for actions/create-release / softprops to upload assets and
+  # write to the Releases API. `GITHUB_TOKEN` is provided automatically.
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os_label }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Don't cancel sibling legs on a single failure — surface all platform
+      # issues at once when cutting a release.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            os_label: macos
+            arch: arm64
+          - runner: macos-13
+            os_label: macos
+            arch: x86_64
+          - runner: ubuntu-latest
+            os_label: linux
+            arch: x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pin to a Dart version that satisfies pubspec.yaml (`>=3.11.0 <4.0.0`).
+      # Note: ROADMAP §3 mentioned `3.6.x`, but the current SDK floor is 3.11.
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.11.x
+
+      - name: Install dependencies
+        run: dart pub get
+
+      # Fail-fast: a red test must block the release artifact upload.
+      - name: Run tests
+        run: dart test
+
+      - name: Compile native executable
+        run: |
+          mkdir -p build
+          dart compile exe bin/fastlane_cli.dart -o build/fastlane_cli
+
+      # Build the distributable tarball. `skills/` (Track C1) and `LICENSE`
+      # (§0 decision) may not yet exist; we collect existing optional paths
+      # into a variable so `tar` only sees real files and the workflow does
+      # not fail in the interim.
+      - name: Create tarball
+        id: tarball
+        run: |
+          set -euo pipefail
+          TARBALL="fastlane_cli-${{ matrix.os_label }}-${{ matrix.arch }}.tar.gz"
+
+          # Required paths — these MUST exist; let tar fail loudly if missing.
+          REQUIRED=(build/fastlane_cli fastlane)
+
+          # Optional paths — include only if present on disk at build time.
+          OPTIONAL_CANDIDATES=(skills README.md LICENSE)
+          OPTIONAL=()
+          for path in "${OPTIONAL_CANDIDATES[@]}"; do
+            if [ -e "$path" ]; then
+              OPTIONAL+=("$path")
+            else
+              echo "::notice::Optional release asset not present, skipping: $path"
+            fi
+          done
+
+          tar -czvf "$TARBALL" "${REQUIRED[@]}" "${OPTIONAL[@]}"
+
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      # Compute sha256 portably (macOS uses `shasum`, Linux ships `sha256sum`).
+      - name: Compute sha256
+        id: sha
+        run: |
+          set -euo pipefail
+          TARBALL="${{ steps.tarball.outputs.tarball }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            SUM="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          else
+            SUM="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
+          fi
+          echo "${SUM}  ${TARBALL}" > "${TARBALL}.sha256"
+          echo "sha256=$SUM" >> "$GITHUB_OUTPUT"
+          echo "checksum_file=${TARBALL}.sha256" >> "$GITHUB_OUTPUT"
+
+      # Stash the sha line so the publish job can assemble a unified
+      # checksum block in the release body.
+      - name: Stage checksum line
+        run: |
+          set -euo pipefail
+          mkdir -p checksums
+          echo "${{ steps.sha.outputs.sha256 }}  ${{ steps.tarball.outputs.tarball }}" \
+            > "checksums/${{ matrix.os_label }}-${{ matrix.arch }}.txt"
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.os_label }}-${{ matrix.arch }}
+          path: |
+            ${{ steps.tarball.outputs.tarball }}
+            ${{ steps.tarball.outputs.checksum_file }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload checksum line artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksum-${{ matrix.os_label }}-${{ matrix.arch }}
+          path: checksums/${{ matrix.os_label }}-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download tarball artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tarball-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download checksum artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checksum-*
+          path: checksum-lines
+          merge-multiple: true
+
+      # Assemble a single SHA256 block for the release body so consumers
+      # (and the future Homebrew tap auto-bump in §4) can scrape one section.
+      - name: Build release body
+        id: body
+        run: |
+          set -euo pipefail
+          {
+            echo "## fastlane_cli ${{ github.ref_name }}"
+            echo
+            echo "Repository: ${{ github.repository }}"
+            echo
+            echo "### SHA256 checksums"
+            echo
+            echo '```'
+            cat checksum-lines/*.txt | sort
+            echo '```'
+          } > release-body.md
+          echo "path=release-body.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # `github.ref_name` resolves to the pushed tag (e.g. `v0.1.0`).
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: ${{ steps.body.outputs.path }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+        env:
+          # Auto-provided per-run token, scoped by the `contents: write`
+          # permission at the workflow level. No PAT or hardcoded owner needed.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
