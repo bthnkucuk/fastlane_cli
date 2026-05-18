@@ -1,205 +1,352 @@
-# Roadmap — from extracted package to brew-installable CLI
+# Roadmap — from extracted package to brew-installable CLI + skills surface
 
-Goal: `brew install <owner>/fastlane_cli/fastlane_cli` → any Flutter project
-can drop a `cli_profile.yaml` next to its own `fastlane/` folder and run lanes
-without bundling the Ruby/Fastlane runner.
+Goal: any Flutter project can `brew install <owner>/fastlane_cli/fastlane_cli`,
+drop a `cli_profile.yaml`, and get:
 
-This is the punch list. Each section is a discrete, mergeable chunk.
+1. A TUI for interactive lane discovery (existing behavior).
+2. Terminal subcommands for every lane (CI-friendly, scriptable, completion-aware).
+3. Bundled Claude skills the developer can drop into their project's
+   `.claude/skills/` (or `~/.claude/skills/`) for fast natural-language integration.
+
+This file is structured for **parallel execution**. Each task block is a
+self-contained brief a sub-agent can pick up; cross-track dependencies are
+explicit. The supervisor (Claude main) dispatches tracks, verifies acceptance,
+and promotes to the next wave.
 
 ---
 
-## 0. Pending decisions (block work)
+## §0. Blockers *(sequential, ~10 min)*
 
 - [ ] **LICENSE choice** — Apache-2.0 or MIT. Add as `LICENSE` at repo root.
-- [ ] **GitHub owner / repo name** — pick the org/user that will host the repo (e.g. `<owner>/fastlane_cli`).
+- [ ] **GitHub owner / repo name** — pick the org/user that will host the repo
+      (e.g. `<owner>/fastlane_cli`).
 - [ ] **Brew dep policy** — confirm `depends_on "fastlane"` in the formula
-      (recommended over "user brings their own Ruby"). See discussion in
-      [CLAUDE.md §6](CLAUDE.md).
+      (recommended over "user brings their own Ruby"; see [CLAUDE.md §6](CLAUDE.md)).
 
-Until 0.1 and 0.2 are answered, the formula and the README header lines
-remain templated.
-
----
-
-## 1. Runner asset auto-resolve  *(small, mostly mechanical)*
-
-The CLI must locate its bundled `fastlane/` runner without depending on a
-`fastlane_runner_path:` line in the consumer's `cli_profile.yaml`.
-
-- [ ] Add `runner_resolver.dart` (or extend `profile_loader.dart`) with:
-      1. If profile sets `fastlane_runner_path` → use it (override).
-      2. Else: resolve via `Platform.resolvedExecutable`, walk up to find
-         `share/fastlane_cli/fastlane/` (brew layout) or `<repo>/fastlane/`
-         (dev/source layout).
-      3. Else: try `Isolate.resolvePackageUri('package:fastlane_cli/_dummy.dart')`
-         then `..resolve('../fastlane/')` (for `dart pub global activate` users).
-      4. Throw a clear "fastlane runner not found" error listing the paths
-         that were tried.
-- [ ] Make `fastlane_runner_path` in `cli_profile.yaml` optional in the
-      profile schema; update `profile_loader.dart` validation.
-- [ ] Tests: add cases for each resolution branch (use a temp dir + fake
-      `share/fastlane_cli/` layout to simulate brew install).
-
-### Acceptance
-Running `dart run bin/fastlane_cli.dart --profile <path>` against a profile
-that does NOT declare `fastlane_runner_path` works in:
-- repo-local source mode (`dart run`)
-- AOT-compiled binary mode (`dart compile exe` next to `fastlane/`)
-- simulated brew layout (binary at `bin/`, fastlane at `share/fastlane_cli/fastlane/`)
+Until these are answered, the formula + README header + release URLs remain
+templated. Development on all tracks can proceed against placeholders.
 
 ---
 
-## 2. Vendor bundle → user cache  *(medium, UX-shaping)*
+## Track A — Dart core (runner resolution + subcommand layer)
 
-`fastlane/vendor/` is git-ignored already, but local dev still expects
-`bundle install --path vendor/bundle`. For brew distribution that approach
-fails (read-only Cellar, platform-specific binaries).
+Owner: one agent end-to-end; A1 → A2 sequential.
 
-- [ ] Slim `fastlane/Gemfile` to the strict minimum needed by
-      `storepilot_bridge.rb` (the lanes themselves rely on the system
-      `fastlane` gem; bridge needs `googleauth` + `google-apis-androidpublisher_v3`).
-- [ ] Decide bundle install location:
-      - macOS: `~/Library/Caches/fastlane_cli/bundle/<ruby-abi>`
-      - Linux: `~/.cache/fastlane_cli/bundle/<ruby-abi>`
-- [ ] Add `fastlane_cli doctor` (or `setup`) subcommand:
-      - Check `fastlane --version` (system / brew dep).
-      - Check Ruby ≥ 3.2.
-      - Run `bundle install --path <user-cache>` against the bundled Gemfile.
-      - On lane run, set `BUNDLE_PATH=<user-cache>` and `BUNDLE_GEMFILE=<runner>/Gemfile`.
-- [ ] First-run hook: if `BUNDLE_PATH` is empty when a lane fires, invoke
-      `doctor` automatically with a one-line "first-run setup" notice.
-- [ ] Documentation: README "first run" section + troubleshooting.
+### A1. Runner asset auto-resolve
+**Depends on**: nothing.
 
-### Acceptance
-Fresh user runs `brew install fastlane_cli && fastlane_cli --profile <profile>`
-and either (a) lane runs after a single first-time bundle install with no manual
-steps, or (b) the CLI fails with a clear remediation message naming the exact
-`fastlane_cli doctor` command.
+Replace the mandatory `fastlane_runner_path:` field in `cli_profile.yaml`
+with an auto-resolver. Resolution order:
 
----
+1. Profile override (`fastlane_runner_path`) if set.
+2. `Platform.resolvedExecutable` → walk up to find `share/fastlane_cli/fastlane/`
+   (brew layout) or `<repo>/fastlane/` (source layout).
+3. `Isolate.resolvePackageUri('package:fastlane_cli/_dummy.dart')` for
+   `dart pub global activate` users.
+4. Throw a clear "fastlane runner not found" error listing paths tried.
 
-## 3. Release build pipeline  *(medium, infra)*
+**Files**: new `lib/src/services/runner_resolver.dart`; update
+`lib/src/services/profile_loader.dart` to make `fastlane_runner_path` optional.
 
-Produce signed binaries for every supported platform on tag push.
+**Acceptance**:
+- `dart run bin/fastlane_cli.dart --profile <p>` works in repo-local source mode,
+  AOT-compiled binary mode, and simulated brew layout — without
+  `fastlane_runner_path` set in profile.
+- Tests cover all 4 resolution branches (temp dir + fake brew layout fixture).
 
-- [ ] `.github/workflows/release.yml`:
-      - matrix: `[macos-14 (arm64), macos-13 (x86_64), ubuntu-latest (x86_64)]`
-      - steps per leg:
-        1. setup dart 3.x
-        2. `dart pub get`
-        3. `dart test`  *(fail-fast)*
-        4. `dart compile exe bin/fastlane_cli.dart -o build/fastlane_cli`
-        5. `tar -czvf fastlane_cli-<os>-<arch>.tar.gz build/fastlane_cli fastlane/ README.md LICENSE`
-        6. upload tarball as release asset
-      - on success: bump the homebrew tap formula (see §4) via a single
-        `gh release` + `repository_dispatch` to the tap repo.
-- [ ] Code-signing for macOS? Probably skip the first release (`spctl` will
-      warn but `brew install` works). Add notarization later.
-- [ ] Reproducibility: lock Dart version in workflow (`dart-version: 3.6.x`),
-      checksum tarballs into release body.
+### A2. Subcommand layer (CommandRunner)
+**Depends on**: A1.
 
-### Acceptance
-Pushing `v0.1.0` tag produces three tarballs on the GitHub Release page, each
-with a matching `.sha256` line in the release body.
+Refactor `bin/fastlane_cli.dart` from a single TUI entry into a `CommandRunner`.
+Subcommands:
 
----
+- *(no command)* → existing TUI (backwards compatible).
+- `run <action-id> [--option key=value ...]` → headless lane execution.
+- `list [--category <id>] [--json]` → enumerate actions from profile.
+- `doctor` → environment check (Ruby/fastlane/bundle/env). **Implementation
+  in Track B**; A2 just wires the shell.
+- `init [--app-name <n>] [--platform ios|android|both]` → scaffold
+  `cli_profile.yaml` in cwd.
+- `skills install [--global|--project] [--force] [--dry-run]` →
+  **implementation in Track C**; A2 wires the shell.
+- `completion <bash|zsh|fish>` → emit shell completion using profile actions.
 
-## 4. Homebrew tap  *(small, mechanical after §3)*
+Profile resolution: `--profile` → `./cli_profile.yaml` → `$FASTLANE_CLI_PROFILE`
+→ error with remediation message.
 
-- [ ] Create `homebrew-fastlane_cli` repo (separate from this one).
-      Path: `Formula/fastlane_cli.rb`.
-- [ ] Formula skeleton:
-      ```ruby
-      class FastlaneCli < Formula
-        desc "Terminal-first Fastlane assistant for Flutter projects"
-        homepage "https://github.com/<owner>/fastlane_cli"
-        version "0.1.0"
+**Files**: `bin/fastlane_cli.dart`, new `lib/src/cli/` dir for command classes,
+update `FastlaneCliLauncher` so TUI path is one of many.
 
-        on_macos do
-          on_arm do
-            url "https://github.com/.../fastlane_cli-macos-arm64.tar.gz"
-            sha256 "..."
-          end
-          on_intel do
-            url "https://github.com/.../fastlane_cli-macos-x86_64.tar.gz"
-            sha256 "..."
-          end
-        end
-        on_linux do
-          url "https://github.com/.../fastlane_cli-linux-x86_64.tar.gz"
-          sha256 "..."
-        end
-
-        depends_on "fastlane"
-
-        def install
-          bin.install "build/fastlane_cli"
-          (share/"fastlane_cli").install "fastlane"
-        end
-
-        test do
-          assert_match "fastlane_cli", shell_output("#{bin}/fastlane_cli --help")
-        end
-      end
-      ```
-- [ ] Wire the tap repo to auto-update formula on this repo's release
-      (GitHub Action: `repository_dispatch` → checkout tap → sed urls+shasums → PR).
-- [ ] Manual smoke test on a fresh user: `brew tap`, `brew install`, run.
-
-### Acceptance
-A bystander with no prior Dart/Flutter setup can run
-`brew install <owner>/fastlane_cli/fastlane_cli && fastlane_cli --help` and
-see the help text.
+**Acceptance**:
+- `fastlane_cli list --json` outputs valid JSON of action IDs/titles.
+- `fastlane_cli run <action-id>` runs a lane non-interactively, propagates the
+  lane's exit code.
+- `fastlane_cli` (no args) still opens TUI when profile is discoverable.
+- All existing tests pass; new tests per subcommand.
 
 ---
 
-## 5. README + public docs
+## Track B — Setup / doctor / bundle cache
 
-- [ ] Top-of-readme: 30-second pitch + animated screencast (asciinema).
-- [ ] Install section (brew + dev-from-source).
-- [ ] Quickstart: minimal `cli_profile.yaml` for a fresh Flutter app.
-- [ ] Schema reference for `cli_profile.yaml` (and how it merges with the
-      bundled `cli_profile.base.yaml`).
-- [ ] "Writing a new lane" guide (with summary-box mandate).
-- [ ] Credentials matrix (env vars and what each lane consumes).
-- [ ] Troubleshooting (Ruby version, fastlane plugin install, etc.).
+Owner: one agent. B1 logic can develop in parallel with A1/A2; B2 needs A2.
+
+### B1. Vendor bundle → user cache
+**Depends on**: nothing for logic; A2 for CLI integration.
+
+Move `bundle install --path vendor/bundle` from repo-local to user cache:
+- macOS: `~/Library/Caches/fastlane_cli/bundle/<ruby-abi>`
+- Linux: `~/.cache/fastlane_cli/bundle/<ruby-abi>`
+
+Slim `fastlane/Gemfile` to the minimum needed by `storepilot_bridge.rb`
+(`googleauth` + `google-apis-androidpublisher_v3`). Lanes themselves use the
+system/brew `fastlane` gem.
+
+At lane-run time set `BUNDLE_PATH=<user-cache>` and
+`BUNDLE_GEMFILE=<runner>/Gemfile` in `CommandBuilder._buildFastlane`.
+
+**Files**: `fastlane/Gemfile`, `lib/src/services/command_builder.dart`,
+new `lib/src/services/bundle_cache.dart`.
+
+**Acceptance**: lane runs after a single first-time bundle install with no
+manual steps; bundle cache reused across runs.
+
+### B2. `doctor` subcommand body
+**Depends on**: A2 shell + B1 cache logic.
+
+Implement `fastlane_cli doctor`:
+- `fastlane --version` ≥ supported.
+- `ruby --version` ≥ 3.2.
+- Bundle cache exists; if missing, run `bundle install --path <cache>`.
+- Credentials env vars present for declared platforms (warn-only).
+
+First-run hook: if bundle cache empty when a lane fires, auto-invoke doctor
+with a one-line "first-run setup" notice.
+
+**Files**: `lib/src/cli/doctor_command.dart`, extend
+`lib/src/services/preflight_validator.dart`.
+
+**Acceptance**: `fastlane_cli doctor` on a fresh machine exits 0 after one-time
+bundle install; reruns are <1s.
 
 ---
 
-## 6. Cleanups deferred from the extraction
+## Track C — Skills bundle
 
-These were left as-is during the move; address opportunistically:
+Owner: one agent for C1+C2 authoring; C3 needs A2 shell.
 
-- [ ] `TEST_QUALITY_REPORT.md` — historical, mentions monorepo context. Either
-      strip the historical preamble or delete.
+### C1. Skills directory + index
+**Depends on**: nothing.
+
+Create `skills/` at repo root with one SKILL.md per feature. Migrate the
+existing `.claude/skills/fastlane-summary-log/` here.
+
+Initial skill set:
+- `fastlane-cli-setup` — scaffold `cli_profile.yaml` + env from a Flutter project.
+- `fastlane-cli-run` — natural language ↔ `fastlane_cli run …`. **MUST** call
+  `fastlane_cli list --json` at runtime, not hardcode action IDs.
+- `fastlane-version-bump` — version status + bump flows.
+- `fastlane-metadata-sync` — store metadata pull/push.
+- `fastlane-testflight` — iOS TestFlight release flow.
+- `fastlane-play-internal` — Android Play internal track flow.
+- `fastlane-doctor` — diagnose env/credential issues.
+- `fastlane-summary-log` — (migrated) for lane authors.
+
+Each SKILL.md frontmatter: `name`, `description`, trigger keywords (terms the
+user might say).
+
+**Files**: `skills/<skill-name>/SKILL.md` per skill; `skills/README.md` index.
+
+**Acceptance**: every SKILL.md parses; trigger keywords don't ambiguously
+overlap.
+
+### C2. Skill content review
+**Depends on**: C1.
+
+Cross-check each skill against actual lanes in `fastlane/ios/Fastfile` +
+`fastlane/android/Fastfile`. Ensure skills:
+- Quote only lane names / action IDs that actually exist.
+- Reference `cli_profile.base.yaml` action IDs verbatim.
+- Discover available actions via `fastlane_cli list --json` at runtime
+  rather than hardcoding them.
+
+**Acceptance**: smoke-run each skill against a sample profile; no
+hallucinated action IDs in any skill body.
+
+### C3. `skills install` subcommand
+**Depends on**: A2 shell + C1 content.
+
+Implement `fastlane_cli skills install`:
+- `--global` → copy bundled `skills/*` to `~/.claude/skills/`.
+- `--project` (default) → copy to `<cwd>/.claude/skills/`.
+- `--dry-run` → list what would be copied.
+- Refuse to overwrite existing skill dirs unless `--force`.
+
+Source path: brew install → `<prefix>/share/fastlane_cli/skills/`; dev mode →
+`<repo>/skills/`. Use runner-resolver (A1) to locate.
+
+**Files**: `lib/src/cli/skills_install_command.dart`.
+
+**Acceptance**: from any directory with no `.claude/skills/` present,
+`fastlane_cli skills install --project` populates it with the bundled skills;
+re-running without `--force` is a no-op with a clear message.
+
+---
+
+## Track D — Release pipeline (GH Actions)
+
+Owner: one agent. Skeleton can land Wave 1; final wiring needs A2 + B1 + C1.
+
+### D1. `.github/workflows/release.yml`
+**Depends on**: A2 + B1 + C1 for the final tarball shape.
+
+Build + tarball matrix:
+- `macos-14` (arm64), `macos-13` (x86_64), `ubuntu-latest` (x86_64).
+- Per leg: setup-dart 3.6.x → `dart pub get` → `dart test` (fail-fast) →
+  `dart compile exe bin/fastlane_cli.dart -o build/fastlane_cli` →
+  `tar -czvf fastlane_cli-<os>-<arch>.tar.gz build/fastlane_cli fastlane/ skills/ README.md LICENSE`.
+- Compute sha256 per tarball; embed into release body.
+- Trigger: tag push `v*.*.*`.
+
+**Acceptance**: pushing `v0.1.0` produces 3 tarballs with matching `.sha256`
+lines in the release body.
+
+### D2. Tap auto-update
+**Depends on**: D1 + E1.
+
+On successful release, `repository_dispatch` to the tap repo with new version +
+urls + shasums; tap repo CI opens a PR updating `Formula/fastlane_cli.rb`.
+
+**Acceptance**: tag push → tap PR opens within 5 min.
+
+---
+
+## Track E — Homebrew tap
+
+Owner: one agent. Skeleton parallel-safe; final URLs/SHAs need D1.
+
+### E1. Tap skeleton + formula
+**Depends on**: A2 + C3 for final install layout; D1 for real URLs/SHAs.
+
+Create `homebrew-fastlane_cli` repo (separate from this one) with
+`Formula/fastlane_cli.rb`:
+
+```ruby
+class FastlaneCli < Formula
+  desc "Terminal-first Fastlane assistant for Flutter projects"
+  homepage "https://github.com/<owner>/fastlane_cli"
+  version "0.1.0"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/.../fastlane_cli-macos-arm64.tar.gz"
+      sha256 "..."
+    end
+    on_intel do
+      url "https://github.com/.../fastlane_cli-macos-x86_64.tar.gz"
+      sha256 "..."
+    end
+  end
+  on_linux do
+    url "https://github.com/.../fastlane_cli-linux-x86_64.tar.gz"
+    sha256 "..."
+  end
+
+  depends_on "fastlane"
+
+  def install
+    bin.install "build/fastlane_cli"
+    (share/"fastlane_cli").install "fastlane"
+    (share/"fastlane_cli").install "skills"
+  end
+
+  def caveats
+    <<~EOS
+      To drop the bundled Claude skills into your project, run:
+        fastlane_cli skills install --project
+      Or globally for all projects:
+        fastlane_cli skills install --global
+    EOS
+  end
+
+  test do
+    assert_match "fastlane_cli", shell_output("#{bin}/fastlane_cli --help")
+  end
+end
+```
+
+**Acceptance**: a fresh user runs `brew install <tap>/fastlane_cli &&
+fastlane_cli --help` with no prior Dart/Flutter setup, sees help text.
+
+---
+
+## Track F — Docs
+
+Owner: one agent. Quickstart/install draft can land Wave 1 with placeholders;
+subcommand + skills sections need A2 + C1 final.
+
+### F1. README
+- 30-second pitch + animated screencast (asciinema).
+- Install (brew + dev-from-source).
+- Quickstart: minimal `cli_profile.yaml` for a fresh Flutter app.
+- Subcommand reference (Track A2 outputs).
+- Skills reference (Track C outputs).
+- Schema reference for `cli_profile.yaml` (merge rules from
+  `cli_profile.base.yaml`).
+- Credentials matrix (env vars per lane).
+- Troubleshooting.
+
+### F2. CONTRIBUTING + lane-author guide
+- Summary-box mandate ([`fastlane-summary-log`](.claude/skills/fastlane-summary-log/SKILL.md)).
+- How to add a new action to base/profile.
+
+---
+
+## Track G — Opportunistic cleanups *(parallel-safe anytime)*
+
+- [ ] `TEST_QUALITY_REPORT.md` — historical, mentions monorepo context. Strip
+      preamble or delete.
 - [ ] `fastlane/README.md`, `fastlane/Preview.html` — leftover fastlane init
       files; trim or remove.
 - [ ] Cull `dependency_overrides:` in `pubspec.yaml` — `meta: 1.18.0` was a
-      monorepo-driven workaround; verify it's still needed standalone.
-- [ ] `analysis_options.yaml` — currently inherits `lints: ^6.1.0`. Tighten
-      project-specific rules (no `print`, no `.hardcoded`).
+      monorepo workaround; verify still needed.
+- [ ] Tighten `analysis_options.yaml` (no `print`, no `.hardcoded`).
 
 ---
 
-## 7. Nice-to-haves (post-1.0)
+## Execution waves *(for supervisor)*
 
-- [ ] `--action <id>` flag to skip the TUI and fire one lane directly (useful
-      for CI).
+| Wave | Track / task | Agent role | Blocks on |
+|---|---|---|---|
+| 0 | §0 decisions | user | — |
+| **1** *(parallel)* | A1 runner resolve | Dart agent | wave 0 |
+| | B1 bundle cache logic | Ruby+Dart agent | wave 0 |
+| | C1 skills authoring | Skills agent | wave 0 |
+| | C2 skill content review | Skills agent | C1 |
+| | D1 release.yml skeleton | CI agent | wave 0 (placeholder paths) |
+| | E1 formula skeleton | Brew agent | wave 0 (template) |
+| | F1 README draft (install + quickstart) | Docs agent | wave 0 |
+| | G cleanups | any free agent | — |
+| **2** *(parallel after A1)* | A2 subcommand layer | Dart agent | A1 |
+| **3** *(parallel after A2)* | B2 doctor body | Setup agent | A2 + B1 |
+| | C3 `skills install` cmd | Skills agent | A2 + C1 |
+| | D1 finalize tarball shape | CI agent | A2 + B1 + C1 |
+| | F1 finalize (subcommand + skills sections) | Docs agent | A2 + C1 |
+| | E1 finalize install block | Brew agent | A2 + C3 |
+| **4** *(sequential)* | D2 tap auto-update | CI agent | D1 + E1 |
+| | E1 publish formula with real URLs/SHAs | Brew agent | D1 release |
+| | release v0.1.0 | supervisor | all above |
+
+**Supervisor responsibilities** (Claude main):
+- Dispatch each wave's tracks in parallel via sub-agents.
+- Verify acceptance criteria per task before promoting to next wave.
+- Resolve cross-track conflicts (e.g. profile schema changes touching A2 + C2).
+- Keep this file in sync with task statuses.
+
+---
+
+## §7. Post-1.0 nice-to-haves
+
 - [ ] JSON output mode for `storepilot_bridge` queries (machine-readable status).
-- [ ] `fastlane_cli init` — scaffold a `cli_profile.yaml` in the current
-      Flutter project.
-- [ ] Cross-platform tests on the GH Actions matrix (today: only macOS local).
 - [ ] Notarize macOS binaries (`xcrun notarytool`).
+- [ ] Cross-platform tests on GH Actions matrix (today: only macOS local).
 - [ ] Submit to `homebrew-core` once 75+ stars + 30 days.
-
----
-
-## Execution order
-
-1. §0 — answer pending decisions (10 min).
-2. §1 — runner auto-resolve (1-2 h).
-3. §2 — vendor → user cache (2-3 h, includes README touchups).
-4. §3 — release pipeline (2-3 h).
-5. §4 — homebrew tap + smoke test (1 h).
-6. §5 — README polish (1-2 h).
-7. §6 — opportunistic cleanups.
