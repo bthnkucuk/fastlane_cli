@@ -29,6 +29,8 @@ export 'src/routing/routes/quick_actions_route.dart';
 export 'src/routing/routes/run_route.dart';
 export 'src/services/bundle_cache.dart';
 export 'src/services/command_builder.dart';
+export 'src/services/doctor_service.dart';
 export 'src/services/preflight_validator.dart';
+export 'src/services/process_runner.dart';
 export 'src/services/runner_resolver.dart';
 export 'src/services/skills_installer.dart';

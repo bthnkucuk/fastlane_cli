@@ -65,7 +65,7 @@ class FastlaneCliLauncher {
         initialLocale: locale,
         dryRun: result.flag('dry-run'),
         commandBuilder: const CommandBuilder(),
-        executionService: const ProcessCommandExecutionService(),
+        executionService: ProcessCommandExecutionService(),
         preflightValidator: const PreflightValidator(),
         guideRegistry: const GuideRegistry(),
       );

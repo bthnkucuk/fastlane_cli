@@ -24,7 +24,7 @@ FastlaneCliCoordinator buildCoordinator() {
     initialLocale: AppLocale.en,
     dryRun: false,
     commandBuilder: const CommandBuilder(),
-    executionService: const ProcessCommandExecutionService(),
+    executionService: ProcessCommandExecutionService(),
     preflightValidator: const PreflightValidator(),
     guideRegistry: const GuideRegistry(),
   );

@@ -22,7 +22,7 @@ class RunCommand extends Command<int> {
   }) : _profileLoader = profileLoader ?? const ProfileLoader(),
        _commandBuilder = commandBuilder ?? const CommandBuilder(),
        _executionService =
-           executionService ?? const ProcessCommandExecutionService(),
+           executionService ?? ProcessCommandExecutionService(),
        _profileResolver = profileResolver ?? const ProfileResolver(),
        _stdout = stdoutSink ?? stdout,
        _stderr = stderrSink ?? stderr {

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../model/command_request.dart';
+import 'doctor_service.dart';
 
 /// Runs the child in a pseudo-TTY on Unix (`script(1)`) so tools like Fastlane
 /// (Ruby `colored`) emit ANSI colors. `Process.start` pipes are not TTYs, so
@@ -85,11 +86,18 @@ abstract class CommandExecutionService {
 }
 
 class ProcessCommandExecutionService implements CommandExecutionService {
-  const ProcessCommandExecutionService({this.useUnixPty = true});
+  ProcessCommandExecutionService({
+    this.useUnixPty = true,
+    DoctorService? doctorService,
+  }) : _doctorService = doctorService ?? DoctorService();
 
   /// When true on macOS/Linux, wraps the command in `script(1)` so child
   /// processes see a TTY and emit ANSI colors (Fastlane, etc.).
   final bool useUnixPty;
+
+  /// Lazily bootstraps the user-cache bundle the first time a fastlane lane
+  /// runs. Injected so tests can supply a no-op.
+  final DoctorService _doctorService;
 
   @override
   Future<CommandExecutionResult> run(
@@ -105,6 +113,26 @@ class ProcessCommandExecutionService implements CommandExecutionService {
         ),
       );
       return const CommandExecutionResult(exitCode: 0, wasDryRun: true);
+    }
+
+    // Bootstrap the per-user bundle cache the first time a `bundle exec
+    // fastlane …` lane runs in this process. Subsequent calls are a no-op
+    // (DoctorService memoizes the result), so this is safe to call on every
+    // invocation. We stream notice/install output through stderr so the user
+    // sees progress rather than a silent hang.
+    if (request.executable == 'bundle') {
+      try {
+        await _doctorService.ensureBundleReady(
+          noticeSink: _BundleNoticeSink(onLog),
+        );
+      } catch (error) {
+        onLog(
+          CommandLogEvent(
+            message: '[exec] bundle bootstrap failed: $error',
+            isError: true,
+          ),
+        );
+      }
     }
 
     onLog(
@@ -190,5 +218,42 @@ class ProcessCommandExecutionService implements CommandExecutionService {
     await Future.wait(<Future<void>>[stdoutDone, stderrDone]);
     await sigintSub?.cancel();
     return CommandExecutionResult(exitCode: exitCode, wasDryRun: false);
+  }
+}
+
+/// Adapts a `CommandLogEvent` callback into a [StringSink] so [DoctorService]
+/// can emit its first-run bundle-install output through the same channel as
+/// every other line the executor produces.
+class _BundleNoticeSink implements StringSink {
+  _BundleNoticeSink(this._onLog);
+
+  final void Function(CommandLogEvent event) _onLog;
+  final StringBuffer _buffer = StringBuffer();
+
+  void _flushLine(String line) {
+    if (line.isEmpty) return;
+    _onLog(CommandLogEvent(message: line, isError: true));
+  }
+
+  @override
+  void write(Object? obj) {
+    _buffer.write(obj);
+  }
+
+  @override
+  void writeAll(Iterable<Object?> objects, [String separator = '']) {
+    _buffer.writeAll(objects, separator);
+  }
+
+  @override
+  void writeCharCode(int charCode) {
+    _buffer.writeCharCode(charCode);
+  }
+
+  @override
+  void writeln([Object? obj = '']) {
+    _buffer.write(obj);
+    _flushLine(_buffer.toString());
+    _buffer.clear();
   }
 }

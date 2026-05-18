@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 void main() {
   group('ProcessCommandExecutionService', () {
     test('dry run emits display command and succeeds', () async {
-      const service = ProcessCommandExecutionService();
+      final service = ProcessCommandExecutionService();
       final request = CommandRequest(
         executable: 'bundle',
         arguments: <String>['exec', 'fastlane', 'android', 'lane'],
