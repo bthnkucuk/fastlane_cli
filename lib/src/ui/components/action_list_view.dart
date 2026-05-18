@@ -1,6 +1,6 @@
 import 'package:nocterm/nocterm.dart';
 
-import '../../localization/locale_code.dart';
+import '../../localization/i18n/strings.g.dart';
 import '../../model/cli_action.dart';
 
 class ActionListView extends StatelessComponent {
@@ -16,7 +16,7 @@ class ActionListView extends StatelessComponent {
 
   final List<CliAction> actions;
   final int selectedIndex;
-  final LocaleCode locale;
+  final AppLocale locale;
   final int? hoveredIndex;
   final void Function(int index)? onActionTap;
   final void Function(int? index)? onActionHover;

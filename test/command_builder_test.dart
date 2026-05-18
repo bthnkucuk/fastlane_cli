@@ -37,11 +37,11 @@ void main() {
       final action = CliAction(
         id: 'android_version_status',
         categoryId: 'android',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'Durum',
-          LocaleCode.en: 'Status',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'Durum',
+          AppLocale.en: 'Status',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.fastlane,
           platform: 'android',
@@ -82,11 +82,11 @@ void main() {
       final action = CliAction(
         id: 'flutter_test',
         categoryId: 'general',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'Test',
-          LocaleCode.en: 'Test',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'Test',
+          AppLocale.en: 'Test',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.flutter,
           arguments: <String>['test', '--coverage'],
@@ -115,11 +115,11 @@ void main() {
       final action = CliAction(
         id: 'dart_script',
         categoryId: 'general',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'Run',
-          LocaleCode.en: 'Run',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'Run',
+          AppLocale.en: 'Run',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.dart,
           arguments: <String>['run', 'tool.dart'],
@@ -148,11 +148,11 @@ void main() {
       final action = CliAction(
         id: 'custom',
         categoryId: 'general',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'C',
-          LocaleCode.en: 'C',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'C',
+          AppLocale.en: 'C',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.custom,
           executable: 'echo',
@@ -181,11 +181,11 @@ void main() {
       final action = CliAction(
         id: 'bad_custom',
         categoryId: 'general',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'C',
-          LocaleCode.en: 'C',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'C',
+          AppLocale.en: 'C',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.custom,
           executable: '   ',
@@ -221,11 +221,11 @@ void main() {
       final action = CliAction(
         id: 'no_platform',
         categoryId: 'general',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'N',
-          LocaleCode.en: 'N',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'N',
+          AppLocale.en: 'N',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.fastlane,
           lane: 'noop',
@@ -266,11 +266,11 @@ void main() {
       final action = CliAction(
         id: 'env_lane',
         categoryId: 'general',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'E',
-          LocaleCode.en: 'E',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'E',
+          AppLocale.en: 'E',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.fastlane,
           lane: 'noop',
@@ -300,11 +300,11 @@ void main() {
       final action = CliAction(
         id: 'bad_lane',
         categoryId: 'g',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'B',
-          LocaleCode.en: 'B',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'B',
+          AppLocale.en: 'B',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.fastlane,
           lane: '',

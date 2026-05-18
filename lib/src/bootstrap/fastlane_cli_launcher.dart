@@ -4,7 +4,7 @@ import 'package:args/args.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:zenrouter_nocterm/zenrouter_nocterm.dart';
 
-import '../localization/locale_code.dart';
+import '../localization/parse_locale.dart';
 import '../routing/coordinator.dart';
 import '../routing/environment.dart';
 import '../services/command_builder.dart';
@@ -53,7 +53,7 @@ class FastlaneCliLauncher {
       }
 
       final profile = await profileLoader.load(profilePath);
-      final locale = LocaleCode.parse(
+      final locale = parseLocale(
         result.option('lang'),
         fallback: profile.defaultLocale,
       );

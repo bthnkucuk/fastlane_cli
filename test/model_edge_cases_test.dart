@@ -7,21 +7,21 @@ void main() {
     test('descriptionFor returns empty when no descriptions', () {
       final category = CliCategory(
         id: 'c',
-        title: const <LocaleCode, String>{LocaleCode.en: 'T'},
-        description: const <LocaleCode, String>{},
+        title: const <AppLocale, String>{AppLocale.en: 'T'},
+        description: const <AppLocale, String>{},
         actionIds: const <String>[],
       );
-      expect(category.descriptionFor(LocaleCode.en), '');
+      expect(category.descriptionFor(AppLocale.en), '');
     });
 
     test('titleFor falls back when locale missing', () {
       final category = CliCategory(
         id: 'c',
-        title: const <LocaleCode, String>{LocaleCode.tr: 'TR'},
-        description: const <LocaleCode, String>{LocaleCode.tr: 'D'},
+        title: const <AppLocale, String>{AppLocale.tr: 'TR'},
+        description: const <AppLocale, String>{AppLocale.tr: 'D'},
         actionIds: const <String>[],
       );
-      expect(category.titleFor(LocaleCode.en), 'TR');
+      expect(category.titleFor(AppLocale.en), 'TR');
     });
   });
 
@@ -29,20 +29,20 @@ void main() {
     test('accessors fall back across locales', () {
       const topic = GuideTopic(
         id: 't',
-        title: <LocaleCode, String>{LocaleCode.tr: 'T'},
-        summary: <LocaleCode, String>{LocaleCode.tr: 'S'},
-        checklist: <LocaleCode, List<String>>{
-          LocaleCode.tr: <String>['a'],
+        title: <AppLocale, String>{AppLocale.tr: 'T'},
+        summary: <AppLocale, String>{AppLocale.tr: 'S'},
+        checklist: <AppLocale, List<String>>{
+          AppLocale.tr: <String>['a'],
         },
-        paths: <LocaleCode, List<String>>{
-          LocaleCode.tr: <String>['p'],
+        paths: <AppLocale, List<String>>{
+          AppLocale.tr: <String>['p'],
         },
       );
 
-      expect(topic.titleFor(LocaleCode.en), 'T');
-      expect(topic.summaryFor(LocaleCode.en), 'S');
-      expect(topic.checklistFor(LocaleCode.en), <String>['a']);
-      expect(topic.pathsFor(LocaleCode.en), <String>['p']);
+      expect(topic.titleFor(AppLocale.en), 'T');
+      expect(topic.summaryFor(AppLocale.en), 'S');
+      expect(topic.checklistFor(AppLocale.en), <String>['a']);
+      expect(topic.pathsFor(AppLocale.en), <String>['p']);
     });
   });
 

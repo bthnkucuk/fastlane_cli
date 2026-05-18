@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
-import '../localization/locale_code.dart';
+import '../localization/i18n/strings.g.dart';
+import '../localization/parse_locale.dart';
 import '../model/cli_action.dart';
 import '../model/cli_category.dart';
 import '../model/cli_profile.dart';
@@ -60,9 +61,9 @@ class ProfileLoader {
       from: appRootPath,
     );
 
-    final defaultLocale = LocaleCode.parse(
+    final defaultLocale = parseLocale(
       _stringOrDefault(appMap, 'default_locale', 'tr'),
-      fallback: LocaleCode.tr,
+      fallback: AppLocale.tr,
     );
 
     final supportedLocales = _parseSupportedLocales(root, defaultLocale);
@@ -322,7 +323,7 @@ class ProfileLoader {
     return actions;
   }
 
-  Map<LocaleCode, String> _parseLocalizedField(
+  Map<AppLocale, String> _parseLocalizedField(
     Map<String, Object?> map,
     String key, {
     bool required = true,
@@ -332,31 +333,31 @@ class ProfileLoader {
       if (required) {
         throw FormatException('Missing required localized field "$key".');
       }
-      return const <LocaleCode, String>{};
+      return const <AppLocale, String>{};
     }
 
     if (value is String) {
-      return {LocaleCode.tr: value, LocaleCode.en: value};
+      return {AppLocale.tr: value, AppLocale.en: value};
     }
 
     if (value is Map) {
-      final parsed = <LocaleCode, String>{};
+      final parsed = <AppLocale, String>{};
       final trValue = value['tr'];
       final enValue = value['en'];
       if (trValue is String && trValue.trim().isNotEmpty) {
-        parsed[LocaleCode.tr] = trValue.trim();
+        parsed[AppLocale.tr] = trValue.trim();
       }
       if (enValue is String && enValue.trim().isNotEmpty) {
-        parsed[LocaleCode.en] = enValue.trim();
+        parsed[AppLocale.en] = enValue.trim();
       }
       if (parsed.isEmpty) {
         throw FormatException('Localized field "$key" requires tr or en text.');
       }
-      if (!parsed.containsKey(LocaleCode.tr)) {
-        parsed[LocaleCode.tr] = parsed.values.first;
+      if (!parsed.containsKey(AppLocale.tr)) {
+        parsed[AppLocale.tr] = parsed.values.first;
       }
-      if (!parsed.containsKey(LocaleCode.en)) {
-        parsed[LocaleCode.en] = parsed.values.first;
+      if (!parsed.containsKey(AppLocale.en)) {
+        parsed[AppLocale.en] = parsed.values.first;
       }
       return parsed;
     }
@@ -364,17 +365,17 @@ class ProfileLoader {
     throw FormatException('Localized field "$key" must be string or map.');
   }
 
-  List<LocaleCode> _parseSupportedLocales(
+  List<AppLocale> _parseSupportedLocales(
     Map<String, Object?> root,
-    LocaleCode defaultLocale,
+    AppLocale defaultLocale,
   ) {
     final app = _requireMap(root, 'app');
     final locales = _parseStringList(app['supported_locales'])
-        .map((item) => LocaleCode.parse(item, fallback: defaultLocale))
+        .map((item) => parseLocale(item, fallback: defaultLocale))
         .toSet()
         .toList();
     if (locales.isEmpty) {
-      return <LocaleCode>[defaultLocale, LocaleCode.en];
+      return <AppLocale>[defaultLocale, AppLocale.en];
     }
     if (!locales.contains(defaultLocale)) {
       locales.insert(0, defaultLocale);

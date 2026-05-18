@@ -28,11 +28,11 @@ void main() {
       final topic = registry.topicById(topicId: 'android_metadata', profile: profile);
 
       expect(topic, isNotNull);
-      final checklist = topic!.checklistFor(LocaleCode.en);
+      final checklist = topic!.checklistFor(AppLocale.en);
       expect(checklist, hasLength(5));
       expect(checklist.first, contains('locale directory'));
       expect(checklist, contains('Add at least one .png/.jpg screenshot.'));
-      final paths = topic.pathsFor(LocaleCode.en);
+      final paths = topic.pathsFor(AppLocale.en);
       expect(paths.first, contains('fastlane'));
       expect(paths.first, endsWith('title.txt'));
     });
@@ -48,8 +48,8 @@ void main() {
       final topic = registry.topicById(topicId: 'ios_metadata', profile: profile);
 
       expect(topic, isNotNull);
-      expect(topic!.summaryFor(LocaleCode.en), contains('App Store'));
-      final paths = topic.pathsFor(LocaleCode.en);
+      expect(topic!.summaryFor(AppLocale.en), contains('App Store'));
+      final paths = topic.pathsFor(AppLocale.en);
       // iOS topic surfaces BOTH metadata and screenshots roots — assert each
       // is present rather than a weak `.any(contains('screenshots'))`.
       expect(paths.where((p) => p.contains('metadata')), isNotEmpty);

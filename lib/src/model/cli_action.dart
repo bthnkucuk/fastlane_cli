@@ -1,4 +1,4 @@
-import '../localization/locale_code.dart';
+import '../localization/i18n/strings.g.dart';
 
 enum ActionCommandType {
   fastlane,
@@ -69,24 +69,24 @@ class CliAction {
 
   final String id;
   final String categoryId;
-  final Map<LocaleCode, String> title;
-  final Map<LocaleCode, String> description;
+  final Map<AppLocale, String> title;
+  final Map<AppLocale, String> description;
   final CliActionCommand command;
   final List<PreflightCheck> preflightChecks;
   final bool shortcut;
   final bool requiresConfirmation;
   final bool requiresOverwriteConfirmation;
 
-  String titleFor(LocaleCode locale) {
-    return title[locale] ?? title[LocaleCode.tr] ?? title.values.first;
+  String titleFor(AppLocale locale) {
+    return title[locale] ?? title[AppLocale.tr] ?? title.values.first;
   }
 
-  String descriptionFor(LocaleCode locale) {
+  String descriptionFor(AppLocale locale) {
     if (description.isEmpty) {
       return '';
     }
     return description[locale] ??
-        description[LocaleCode.tr] ??
+        description[AppLocale.tr] ??
         description.values.first;
   }
 }

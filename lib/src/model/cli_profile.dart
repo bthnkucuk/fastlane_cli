@@ -1,6 +1,6 @@
 import 'cli_action.dart';
 import 'cli_category.dart';
-import '../localization/locale_code.dart';
+import '../localization/i18n/strings.g.dart';
 
 class CliProfile {
   CliProfile({
@@ -21,8 +21,8 @@ class CliProfile {
   final String appRootPath;
   final String fastlanePath;
   final String fastlaneRunnerPath;
-  final LocaleCode defaultLocale;
-  final List<LocaleCode> supportedLocales;
+  final AppLocale defaultLocale;
+  final List<AppLocale> supportedLocales;
   final List<CliCategory> categories;
   final List<CliAction> actions;
   final List<String> shortcutActionIds;

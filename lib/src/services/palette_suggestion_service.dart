@@ -1,5 +1,4 @@
 import '../localization/i18n/strings.g.dart';
-import '../localization/locale_code.dart';
 import '../model/cli_profile.dart';
 import '../model/palette_suggestion.dart';
 
@@ -8,7 +7,7 @@ class PaletteSuggestionService {
 
   List<PaletteSuggestion> build({
     required CliProfile profile,
-    required LocaleCode locale,
+    required AppLocale locale,
     required String query,
   }) {
     final normalizedQuery = _normalize(query);

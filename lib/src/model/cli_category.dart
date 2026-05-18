@@ -1,4 +1,4 @@
-import '../localization/locale_code.dart';
+import '../localization/i18n/strings.g.dart';
 
 class CliCategory {
   const CliCategory({
@@ -9,20 +9,20 @@ class CliCategory {
   });
 
   final String id;
-  final Map<LocaleCode, String> title;
-  final Map<LocaleCode, String> description;
+  final Map<AppLocale, String> title;
+  final Map<AppLocale, String> description;
   final List<String> actionIds;
 
-  String titleFor(LocaleCode locale) {
-    return title[locale] ?? title[LocaleCode.tr] ?? title.values.first;
+  String titleFor(AppLocale locale) {
+    return title[locale] ?? title[AppLocale.tr] ?? title.values.first;
   }
 
-  String descriptionFor(LocaleCode locale) {
+  String descriptionFor(AppLocale locale) {
     if (description.isEmpty) {
       return '';
     }
     return description[locale] ??
-        description[LocaleCode.tr] ??
+        description[AppLocale.tr] ??
         description.values.first;
   }
 }

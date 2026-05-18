@@ -1,7 +1,6 @@
 import 'package:path/path.dart' as p;
 
 import '../localization/i18n/strings.g.dart';
-import '../localization/locale_code.dart';
 import '../model/cli_profile.dart';
 import '../model/guide_topic.dart';
 
@@ -20,11 +19,11 @@ class GuideRegistry {
   }
 
   /// Reads a property from each [AppLocale]'s slang translation bundle and
-  /// produces a per-[LocaleCode] map suitable for [GuideTopic].
-  Map<LocaleCode, T> _perLocale<T>(T Function(Translations t) read) {
-    return <LocaleCode, T>{
+  /// produces a per-[AppLocale] map suitable for [GuideTopic].
+  Map<AppLocale, T> _perLocale<T>(T Function(Translations t) read) {
+    return <AppLocale, T>{
       for (final appLocale in AppLocale.values)
-        appLocale.toLocaleCode(): read(appLocale.buildSync()),
+        appLocale: read(appLocale.buildSync()),
     };
   }
 
@@ -47,8 +46,8 @@ class GuideRegistry {
       title: _perLocale((t) => t.guides.androidMetadata.title),
       summary: _perLocale((t) => t.guides.androidMetadata.summary),
       checklist: _perLocale((t) => t.guides.androidMetadata.checklist),
-      paths: <LocaleCode, List<String>>{
-        for (final code in LocaleCode.values) code: paths,
+      paths: <AppLocale, List<String>>{
+        for (final code in AppLocale.values) code: paths,
       },
     );
   }

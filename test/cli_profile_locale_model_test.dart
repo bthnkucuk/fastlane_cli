@@ -1,20 +1,26 @@
 import 'package:fastlane_cli/fastlane_cli.dart';
+import 'package:fastlane_cli/src/localization/parse_locale.dart';
 import 'package:test/test.dart';
 
 import 'support/profile_factory.dart';
 
 void main() {
-  group('LocaleCode', () {
-    test('parse maps tr and en', () {
-      expect(LocaleCode.parse('tr'), LocaleCode.tr);
-      expect(LocaleCode.parse('en'), LocaleCode.en);
-      expect(LocaleCode.parse('EN'), LocaleCode.en);
+  group('parseLocale', () {
+    test('maps tr and en case-insensitively', () {
+      expect(parseLocale('tr'), AppLocale.tr);
+      expect(parseLocale('en'), AppLocale.en);
+      expect(parseLocale('EN'), AppLocale.en);
     });
 
-    test('parse uses fallback for unknown', () {
-      expect(LocaleCode.parse('xx'), LocaleCode.tr);
-      expect(LocaleCode.parse('xx', fallback: LocaleCode.en), LocaleCode.en);
-      expect(LocaleCode.parse(null), LocaleCode.tr);
+    test('uses fallback for unknown input', () {
+      expect(parseLocale('xx'), AppLocale.tr);
+      expect(parseLocale('xx', fallback: AppLocale.en), AppLocale.en);
+    });
+
+    test('uses fallback for null or empty input', () {
+      expect(parseLocale(null), AppLocale.tr);
+      expect(parseLocale(''), AppLocale.tr);
+      expect(parseLocale('   '), AppLocale.tr);
     });
   });
 
@@ -51,8 +57,8 @@ void main() {
       final action = CliAction(
         id: 'a',
         categoryId: 'c',
-        title: const <LocaleCode, String>{LocaleCode.tr: 'TR only'},
-        description: const <LocaleCode, String>{},
+        title: const <AppLocale, String>{AppLocale.tr: 'TR only'},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.flutter,
           arguments: <String>[],
@@ -62,17 +68,17 @@ void main() {
         requiresConfirmation: false,
       );
 
-      expect(action.titleFor(LocaleCode.en), 'TR only');
-      expect(action.descriptionFor(LocaleCode.en), '');
+      expect(action.titleFor(AppLocale.en), 'TR only');
+      expect(action.descriptionFor(AppLocale.en), '');
     });
 
     test('titleFor uses first value when tr missing', () {
       final action = CliAction(
         id: 'a',
         categoryId: 'c',
-        title: const <LocaleCode, String>{LocaleCode.en: 'EN only'},
-        description: const <LocaleCode, String>{
-          LocaleCode.en: 'desc',
+        title: const <AppLocale, String>{AppLocale.en: 'EN only'},
+        description: const <AppLocale, String>{
+          AppLocale.en: 'desc',
         },
         command: const CliActionCommand(
           type: ActionCommandType.flutter,
@@ -83,8 +89,8 @@ void main() {
         requiresConfirmation: false,
       );
 
-      expect(action.titleFor(LocaleCode.tr), 'EN only');
-      expect(action.descriptionFor(LocaleCode.tr), 'desc');
+      expect(action.titleFor(AppLocale.tr), 'EN only');
+      expect(action.descriptionFor(AppLocale.tr), 'desc');
     });
   });
 

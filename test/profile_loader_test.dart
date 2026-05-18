@@ -176,7 +176,7 @@ void main() {
 
       expect(profile.appName, 'OverlayApp');
       final action = profile.actionsById['shared_action']!;
-      expect(action.title[LocaleCode.en], 'Overridden Title');
+      expect(action.title[AppLocale.en], 'Overridden Title');
     });
 
     test('parses plain string category title', () async {
@@ -194,8 +194,8 @@ void main() {
       );
       final profile = await loader.load(profileFile.path);
 
-      expect(profile.categories.single.title[LocaleCode.tr], 'Plain');
-      expect(profile.categories.single.title[LocaleCode.en], 'Plain');
+      expect(profile.categories.single.title[AppLocale.tr], 'Plain');
+      expect(profile.categories.single.title[AppLocale.en], 'Plain');
     });
 
     test('parses string boolean flags in YAML', () async {

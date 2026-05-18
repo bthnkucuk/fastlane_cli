@@ -26,7 +26,7 @@ void main() {
 
       final suggestions = service.build(
         profile: profile,
-        locale: LocaleCode.tr,
+        locale: AppLocale.tr,
         query: '/',
       );
 
@@ -49,11 +49,11 @@ void main() {
       final action = CliAction(
         id: 'ios_download_metadata',
         categoryId: 'ios',
-        title: const <LocaleCode, String>{
-          LocaleCode.tr: 'iOS metadata indir',
-          LocaleCode.en: 'Download iOS metadata',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'iOS metadata indir',
+          AppLocale.en: 'Download iOS metadata',
         },
-        description: const <LocaleCode, String>{},
+        description: const <AppLocale, String>{},
         command: const CliActionCommand(
           type: ActionCommandType.fastlane,
           platform: 'ios',
@@ -73,7 +73,7 @@ void main() {
 
       final suggestions = service.build(
         profile: profile,
-        locale: LocaleCode.tr,
+        locale: AppLocale.tr,
         query: '/metadata',
       );
 
@@ -93,7 +93,7 @@ void main() {
 
       final suggestions = service.build(
         profile: profile,
-        locale: LocaleCode.tr,
+        locale: AppLocale.tr,
         query: '/q',
       );
 

@@ -12,8 +12,8 @@ CliProfile createTestProfile({
     appRootPath: appRootPath,
     fastlanePath: 'fastlane',
     fastlaneRunnerPath: 'fastlane',
-    defaultLocale: LocaleCode.tr,
-    supportedLocales: const <LocaleCode>[LocaleCode.tr, LocaleCode.en],
+    defaultLocale: AppLocale.tr,
+    supportedLocales: const <AppLocale>[AppLocale.tr, AppLocale.en],
     categories: categories,
     actions: actions,
     shortcutActionIds: shortcuts,
@@ -26,13 +26,13 @@ CliCategory makeCategory({
 }) {
   return CliCategory(
     id: id,
-    title: <LocaleCode, String>{
-      LocaleCode.tr: id.toUpperCase(),
-      LocaleCode.en: id.toUpperCase(),
+    title: <AppLocale, String>{
+      AppLocale.tr: id.toUpperCase(),
+      AppLocale.en: id.toUpperCase(),
     },
-    description: <LocaleCode, String>{
-      LocaleCode.tr: '$id category',
-      LocaleCode.en: '$id category',
+    description: <AppLocale, String>{
+      AppLocale.tr: '$id category',
+      AppLocale.en: '$id category',
     },
     actionIds: actionIds,
   );
@@ -51,13 +51,13 @@ CliAction makeFastlaneAction({
   return CliAction(
     id: id,
     categoryId: categoryId,
-    title: const <LocaleCode, String>{
-      LocaleCode.tr: 'Aksiyon',
-      LocaleCode.en: 'Action',
+    title: const <AppLocale, String>{
+      AppLocale.tr: 'Aksiyon',
+      AppLocale.en: 'Action',
     },
-    description: const <LocaleCode, String>{
-      LocaleCode.tr: 'Açıklama',
-      LocaleCode.en: 'Description',
+    description: const <AppLocale, String>{
+      AppLocale.tr: 'Açıklama',
+      AppLocale.en: 'Description',
     },
     command: CliActionCommand(
       type: ActionCommandType.fastlane,

@@ -1,7 +1,6 @@
 import 'package:nocterm/nocterm.dart';
 
 import '../../localization/i18n/strings.g.dart';
-import '../../localization/locale_code.dart';
 import '../../model/guide_topic.dart';
 import '../../ui/components/shell_scaffold.dart';
 import '../app_route.dart';
@@ -67,7 +66,7 @@ class _GuideView extends StatelessComponent {
     );
   }
 
-  Component _buildBody(LocaleCode locale, GuideTopic? guide) {
+  Component _buildBody(AppLocale locale, GuideTopic? guide) {
     final items = <Component>[];
     if (guide == null) {
       items.add(Text(t.guideFallback));

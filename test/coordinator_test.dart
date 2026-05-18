@@ -21,7 +21,7 @@ FastlaneCliCoordinator buildCoordinator() {
   );
   final environment = FastlaneCliEnvironment(
     profile: profile,
-    initialLocale: LocaleCode.en,
+    initialLocale: AppLocale.en,
     dryRun: false,
     commandBuilder: const CommandBuilder(),
     executionService: const ProcessCommandExecutionService(),

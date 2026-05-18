@@ -1,5 +1,4 @@
 import '../localization/i18n/strings.g.dart';
-import '../localization/locale_code.dart';
 import '../model/cli_profile.dart';
 import '../services/command_builder.dart';
 import '../services/command_execution_service.dart';
@@ -11,7 +10,7 @@ import '../services/run_progress_parser.dart';
 class FastlaneCliEnvironment {
   FastlaneCliEnvironment({
     required this.profile,
-    required LocaleCode initialLocale,
+    required AppLocale initialLocale,
     required this.dryRun,
     required this.commandBuilder,
     required this.executionService,
@@ -20,7 +19,7 @@ class FastlaneCliEnvironment {
     this.paletteSuggestionService = const PaletteSuggestionService(),
     this.progressParser = const RunProgressParser(),
   }) : _locale = initialLocale {
-    LocaleSettings.setLocaleSync(initialLocale.toAppLocale());
+    LocaleSettings.setLocaleSync(initialLocale);
   }
 
   final CliProfile profile;
@@ -32,23 +31,23 @@ class FastlaneCliEnvironment {
   final PaletteSuggestionService paletteSuggestionService;
   final RunProgressParser progressParser;
 
-  LocaleCode _locale;
-  LocaleCode get locale => _locale;
+  AppLocale _locale;
+  AppLocale get locale => _locale;
 
-  final List<void Function(LocaleCode)> _localeListeners = [];
+  final List<void Function(AppLocale)> _localeListeners = [];
 
-  void addLocaleListener(void Function(LocaleCode) listener) {
+  void addLocaleListener(void Function(AppLocale) listener) {
     _localeListeners.add(listener);
   }
 
-  void removeLocaleListener(void Function(LocaleCode) listener) {
+  void removeLocaleListener(void Function(AppLocale) listener) {
     _localeListeners.remove(listener);
   }
 
-  void setLocale(LocaleCode locale) {
+  void setLocale(AppLocale locale) {
     if (_locale == locale) return;
     _locale = locale;
-    LocaleSettings.setLocaleSync(locale.toAppLocale());
+    LocaleSettings.setLocaleSync(locale);
     for (final listener in List.of(_localeListeners)) {
       listener(locale);
     }

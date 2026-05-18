@@ -1,5 +1,4 @@
 import 'package:fastlane_cli/src/localization/i18n/strings.g.dart';
-import 'package:fastlane_cli/src/localization/locale_code.dart';
 import 'package:fastlane_cli/src/localization/run_status_label.dart';
 import 'package:fastlane_cli/src/model/run_session.dart';
 import 'package:test/test.dart';
@@ -85,12 +84,4 @@ void main() {
     });
   });
 
-  group('LocaleCode <-> AppLocale adapter', () {
-    test('round-trips both supported locales', () {
-      expect(LocaleCode.tr.toAppLocale(), AppLocale.tr);
-      expect(LocaleCode.en.toAppLocale(), AppLocale.en);
-      expect(AppLocale.tr.toLocaleCode(), LocaleCode.tr);
-      expect(AppLocale.en.toLocaleCode(), LocaleCode.en);
-    });
-  });
 }

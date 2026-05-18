@@ -10,7 +10,6 @@ export 'src/cli/list_command.dart';
 export 'src/cli/profile_resolver.dart';
 export 'src/cli/run_command.dart';
 export 'src/cli/skills_install_command.dart';
-export 'src/localization/locale_code.dart';
 export 'src/model/cli_action.dart';
 export 'src/model/cli_category.dart';
 export 'src/model/cli_profile.dart';
