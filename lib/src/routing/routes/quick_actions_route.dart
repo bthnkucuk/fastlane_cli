@@ -45,10 +45,16 @@ class _QuickActionsViewState extends State<_QuickActionsView> {
 
     return Stack(
       children: <Component>[
+        // FadeModalBarrier replaces the prior Positioned.fill + GestureDetector
+        // tap-catcher with an animated barrier that owns its own dismiss
+        // gesture. obscure: false keeps the underlying shell faintly visible
+        // while the panel is open — same behaviour as before (no scrim).
         Positioned.fill(
-          child: GestureDetector(
-            onTap: _dismiss,
-            child: const SizedBox.expand(),
+          child: FadeModalBarrier(
+            color: Colors.black.withOpacity(0),
+            dismissible: true,
+            onDismiss: _dismiss,
+            obscure: false,
           ),
         ),
         Positioned(
@@ -61,20 +67,22 @@ class _QuickActionsViewState extends State<_QuickActionsView> {
               width: 56,
               decoration: BoxDecoration(
                 color: theme.surface,
-                border: BoxBorder.all(color: theme.primary),
+                border: BoxBorder.all(
+                  color: theme.primary,
+                  style: BoxBorderStyle.rounded,
+                ),
+                title: BorderTitle(
+                  text: texts.shortcuts,
+                  style: TextStyle(
+                    color: theme.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 1),
               child: Column(
                 crossAxisAlignment: .start,
                 children: <Component>[
-                  Text(
-                    texts.shortcuts,
-                    style: TextStyle(
-                      color: theme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Divider(),
                   if (actions.isEmpty)
                     Text(texts.noAction,
                         style: TextStyle(color: theme.secondary))

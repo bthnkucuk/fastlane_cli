@@ -73,13 +73,11 @@ class _GuideView extends StatelessComponent {
     if (guide == null) {
       items.add(Text(texts.guideFallback));
     } else {
-      for (final line in guide.checklistFor(locale)) {
-        items.add(Text('- $line'));
-      }
-      items.add(const SizedBox(height: 1));
-      for (final path in guide.pathsFor(locale)) {
-        items.add(Text(path));
-      }
+      // NOTE: `markdownFor` currently synthesizes markdown from the
+      // checklist + paths maps. When the Slang agent migrates the registry
+      // strings to slang YAML, `markdownFor` can return localized markdown
+      // verbatim with no changes here.
+      items.add(MarkdownText(guide.markdownFor(locale)));
     }
 
     if (retryActionId != null && retryActionId!.isNotEmpty) {

@@ -103,8 +103,6 @@ class _RunView extends StatefulComponent {
 
 class _RunViewState extends State<_RunView> {
   final ScrollController _logScrollController = ScrollController();
-  int _lastRenderedLogCount = 0;
-  bool _stickLogsToBottom = true;
   String? _copyFeedback;
   Timer? _copyFeedbackTimer;
 
@@ -113,7 +111,6 @@ class _RunViewState extends State<_RunView> {
   @override
   void initState() {
     super.initState();
-    _logScrollController.addListener(_onLogScroll);
     _controller.addListener(_onSessionChanged);
     // Auto-start when the tab opens for the first time. The coordinator's
     // requestRun() handles the confirmation dialog before getting here, so
@@ -141,9 +138,7 @@ class _RunViewState extends State<_RunView> {
   void dispose() {
     _copyFeedbackTimer?.cancel();
     _controller.removeListener(_onSessionChanged);
-    _logScrollController
-      ..removeListener(_onLogScroll)
-      ..dispose();
+    _logScrollController.dispose();
     super.dispose();
   }
 
@@ -157,7 +152,7 @@ class _RunViewState extends State<_RunView> {
     final texts = AppTexts(env.locale);
     final action = env.profile.actionsById[component.route.actionId];
     final run = _controller.session;
-    _syncLogViewport(run);
+    _autoStickToTail(run);
     final theme = TuiTheme.of(context);
 
     return Focusable(
@@ -176,7 +171,7 @@ class _RunViewState extends State<_RunView> {
             if (run.status == RunStatus.blocked)
               Text(
                 texts.blockedByGuide,
-                style: const TextStyle(color: Colors.red),
+                style: TextStyle(color: theme.error),
               ),
             if (run.validationErrors.isNotEmpty) ...<Component>[
               const SizedBox(height: 1),
@@ -185,8 +180,6 @@ class _RunViewState extends State<_RunView> {
             ],
             const SizedBox(height: 1),
             _buildProgressSection(run: run, texts: texts, theme: theme),
-            const SizedBox(height: 1),
-            Text(texts.logs),
             const SizedBox(height: 1),
             Expanded(
               child: _buildLogConsole(run: run, theme: theme, texts: texts),
@@ -292,20 +285,16 @@ class _RunViewState extends State<_RunView> {
         run.exitCode == null;
   }
 
-  void _onLogScroll() {
-    _stickLogsToBottom =
-        (_logScrollController.maxScrollExtent - _logScrollController.offset) <=
-        1;
-  }
-
-  void _syncLogViewport(RunSession run) {
-    final count = run.logs.length;
-    if (count == _lastRenderedLogCount) return;
-    _lastRenderedLogCount = count;
-    if (!_stickLogsToBottom) return;
+  /// Keeps the log viewport pinned to the most-recent entry as logs stream
+  /// in. We schedule the `ensureIndexVisible` call after the frame so the
+  /// ListView has laid out the new tail item before we ask the controller
+  /// to bring it into view.
+  void _autoStickToTail(RunSession run) {
+    if (run.logs.isEmpty) return;
+    final tailIndex = run.logs.length - 1;
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_stickLogsToBottom) return;
-      _logScrollController.jumpTo(_logScrollController.maxScrollExtent);
+      if (!mounted) return;
+      _logScrollController.ensureIndexVisible(index: tailIndex);
     });
   }
 
@@ -332,31 +321,47 @@ class _RunViewState extends State<_RunView> {
     required TuiThemeData theme,
     required AppTexts texts,
   }) {
+    final logs = run.logs;
+    // BorderTitle threads the existing localized `texts.logs` string into
+    // the panel chrome — no new string literals introduced here.
+    final decoration = BoxDecoration(
+      color: theme.background,
+      border: BoxBorder.all(
+        color: theme.outlineVariant,
+        style: BoxBorderStyle.rounded,
+      ),
+      title: BorderTitle(
+        text: texts.logs,
+        style: TextStyle(color: theme.onSurface),
+      ),
+    );
+
+    if (logs.isEmpty) {
+      return Container(
+        width: double.infinity,
+        decoration: decoration,
+        padding: const EdgeInsets.symmetric(horizontal: 1),
+        child: Text(
+          texts.waitingLogs,
+          style: TextStyle(color: theme.secondary),
+        ),
+      );
+    }
+
     return Container(
       width: double.infinity,
-      decoration: BoxDecoration(
-        color: theme.background,
-        border: BoxBorder.all(color: theme.outlineVariant),
-      ),
+      decoration: decoration,
       child: Scrollbar(
         controller: _logScrollController,
         thumbVisibility: true,
-        child: SingleChildScrollView(
-          controller: _logScrollController,
-          child: SelectionArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: Column(
-                crossAxisAlignment: .start,
-                children: run.logs.isEmpty
-                    ? <Component>[
-                        Text(
-                          texts.waitingLogs,
-                          style: TextStyle(color: theme.secondary),
-                        ),
-                      ]
-                    : run.logs.map((entry) => _logLine(entry, theme)).toList(),
-              ),
+        child: SelectionArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1),
+            child: ListView.builder(
+              controller: _logScrollController,
+              lazy: true,
+              itemCount: logs.length,
+              itemBuilder: (context, index) => _logLine(logs[index], theme),
             ),
           ),
         ),
@@ -369,17 +374,22 @@ class _RunViewState extends State<_RunView> {
     required AppTexts texts,
     required TuiThemeData theme,
   }) {
-    final bar = _progressBar(run);
     final currentFile = run.activeFile;
+    final indeterminate = run.progressIndeterminate;
+    final progressValue = indeterminate
+        ? null
+        : (run.progressValue ?? 0).clamp(0.0, 1.0).toDouble();
     return Column(
       crossAxisAlignment: .start,
       children: <Component>[
         Text(texts.progress),
-        Text(
-          bar,
-          style: TextStyle(
-            color: run.progressIndeterminate ? theme.warning : theme.success,
-          ),
+        ProgressBar(
+          value: progressValue,
+          indeterminate: indeterminate,
+          showPercentage: !indeterminate,
+          borderStyle: ProgressBarBorderStyle.rounded,
+          valueColor: indeterminate ? theme.warning : theme.success,
+          minHeight: 3,
         ),
         Text(
           '${texts.currentFile}: ${currentFile ?? texts.waitingLogs}',
@@ -387,22 +397,5 @@ class _RunViewState extends State<_RunView> {
         ),
       ],
     );
-  }
-
-  String _progressBar(RunSession run) {
-    const width = 34;
-    if (run.progressIndeterminate) {
-      final trail = List<String>.filled(width, '░');
-      final index = run.logs.isEmpty ? 0 : (run.logs.length % width);
-      trail[index] = '█';
-      if (index > 0) trail[index - 1] = '▓';
-      return '[${trail.join()}]';
-    }
-    final progress = (run.progressValue ?? 0).clamp(0, 1).toDouble();
-    final filled = (progress * width).round();
-    final filledStr = List<String>.filled(filled, '█').join();
-    final empty = List<String>.filled(width - filled, '░').join();
-    final percent = (progress * 100).round().toString().padLeft(3, ' ');
-    return '[$filledStr$empty] $percent%';
   }
 }

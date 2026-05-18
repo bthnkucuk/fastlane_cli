@@ -54,7 +54,11 @@ class _ConfirmDialogViewState extends State<_ConfirmDialogView> {
       onKeyEvent: _onKeyEvent,
       child: Stack(
         children: <Component>[
-          ModalBarrier(
+          // FadeModalBarrier fades in via its internal AnimationController
+          // and owns the dismiss-on-tap gesture (no separate Positioned.fill
+          // GestureDetector needed). Confirm dialogs intentionally require
+          // an explicit Y/N choice, so dismissible is false here.
+          FadeModalBarrier(
             color: Colors.black.withOpacity(0.42),
             dismissible: false,
             obscure: false,
@@ -64,7 +68,17 @@ class _ConfirmDialogViewState extends State<_ConfirmDialogView> {
               width: 72,
               decoration: BoxDecoration(
                 color: theme.surface,
-                border: BoxBorder.all(color: theme.warning),
+                border: BoxBorder.all(
+                  color: theme.warning,
+                  style: BoxBorderStyle.rounded,
+                ),
+                title: BorderTitle(
+                  text: component.route.title,
+                  style: TextStyle(
+                    color: theme.warning,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               padding:
                   const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
@@ -72,14 +86,6 @@ class _ConfirmDialogViewState extends State<_ConfirmDialogView> {
                 mainAxisSize: .min,
                 crossAxisAlignment: .start,
                 children: <Component>[
-                  Text(
-                    component.route.title,
-                    style: TextStyle(
-                      color: theme.warning,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 1),
                   Text(component.route.message),
                   if (component.route.hint != null) ...<Component>[
                     const SizedBox(height: 1),

@@ -158,7 +158,17 @@ class _CommandPaletteCompactBarState extends State<CommandPaletteCompactBar> {
       width: double.infinity,
       decoration: BoxDecoration(
         color: theme.surface,
-        border: BoxBorder.all(color: theme.primary),
+        border: BoxBorder.all(
+          color: theme.primary,
+          style: BoxBorderStyle.rounded,
+        ),
+        title: BorderTitle(
+          text: texts.commandPaletteTitle,
+          style: TextStyle(
+            color: theme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 1),
       child: Column(
@@ -193,14 +203,6 @@ class _CommandPaletteCompactBarState extends State<CommandPaletteCompactBar> {
                 ),
               );
             }),
-          const SizedBox(height: 1),
-          Text(
-            texts.commandPaletteTitle,
-            style: TextStyle(
-              color: theme.primary,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
         ],
       ),
     );

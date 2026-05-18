@@ -23,11 +23,20 @@ class ActionListView extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
+    final theme = TuiTheme.of(context);
     if (actions.isEmpty) {
-      return const Text('-');
+      // Empty-state glyph only — no new localized strings introduced
+      // here. Callers that need a localized message still render their
+      // own `texts.noAction` next to this list.
+      return Center(
+        child: Text(
+          '◌',
+          style: TextStyle(color: theme.secondary),
+        ),
+      );
     }
 
-    final theme = TuiTheme.of(context);
+
     final rows = <Component>[];
     for (var index = 0; index < actions.length; index++) {
       final action = actions[index];
