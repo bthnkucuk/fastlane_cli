@@ -30,6 +30,8 @@ dart pub get
 dart run bin/fastlane_cli.dart --profile /abs/path/to/cli_profile.yaml
 ```
 
+Toolchain is FVM-pinned ([`.fvmrc`](.fvmrc)); install [direnv](https://direnv.net/) for project-scoped `dart` on PATH ([`.envrc`](.envrc) adds the FVM Dart SDK). Without direnv, prefix commands with `fvm dart …`.
+
 Requirements:
 
 - Dart SDK ≥ 3.11.0
@@ -137,8 +139,216 @@ at this repo's `fastlane/` directory. Runner auto-resolution is tracked in
 
 ## Subcommand reference
 
-Coming in v0.1 — see [ROADMAP Track A2](ROADMAP.md).
+> **Profile resolution.** Every subcommand that needs a profile looks it up in
+> a fixed three-tier order (implemented in
+> [`lib/src/cli/profile_resolver.dart`](lib/src/cli/profile_resolver.dart)):
+>
+> 1. `--profile <path>` (or `-p <path>`) on the command line.
+> 2. `$FASTLANE_CLI_PROFILE` environment variable.
+> 3. `./cli_profile.yaml` in the current working directory.
+>
+> If none of the three points at an existing file, the command exits `66`
+> (`EX_NOINPUT`) and prints all three tried locations plus a remediation
+> hint.
+
+### `fastlane_cli` (no subcommand) — TUI
+
+```
+fastlane_cli [--profile <path>] [--lang tr|en] [--dry-run]
+```
+
+Opens the categorized TUI (sidebar, slash palette, live logs, run tabs). With
+no positional argument and no recognized subcommand, the binary delegates to
+[`FastlaneCliLauncher`](lib/src/bootstrap/fastlane_cli_launcher.dart) (see
+[`lib/src/cli/fastlane_cli_runner.dart`](lib/src/cli/fastlane_cli_runner.dart)).
+
+| Flag | Description |
+|---|---|
+| `--profile`, `-p` | Path to `cli_profile.yaml`. Falls back to `$FASTLANE_CLI_PROFILE`, then `./cli_profile.yaml`. |
+| `--lang tr\|en` | Override UI language (otherwise taken from the profile's `default_locale`). |
+| `--dry-run` | Build resolved commands and stream them to the log without executing. |
+
+```bash
+fastlane_cli --profile /abs/path/to/cli_profile.yaml --lang en
+```
+
+### `fastlane_cli run <action-id>`
+
+```
+fastlane_cli run <action-id> [--profile <path>] [--option key=value ...] [--dry-run]
+```
+
+Run a single action by id, non-interactively. Streams the lane's stdout/stderr
+as plain text and propagates the lane's exit code. Unknown ids exit `64` with
+a pointer to `fastlane_cli list`.
+
+| Flag | Description |
+|---|---|
+| `--profile`, `-p` | Profile path (standard three-tier resolution). |
+| `--option`, `-o` `key=value` | Override or add a single command option. Repeatable. Merged on top of the action's `command.options`. Only `fastlane`-type commands accept options. |
+| `--dry-run` | Print the resolved command without spawning a process. |
+
+```bash
+fastlane_cli run android_internal_testing --option track=alpha --option skip_upload_metadata=true
+```
+
+### `fastlane_cli list`
+
+```
+fastlane_cli list [--profile <path>] [--category <id>] [--json]
+```
+
+Enumerate every action visible in the merged profile (base + per-app).
+
+| Flag | Description |
+|---|---|
+| `--profile`, `-p` | Profile path (standard three-tier resolution). |
+| `--category`, `-c` `<id>` | Filter to a single category id. |
+| `--json` | Emit a JSON array instead of `id\t[category]\ttitle` text. |
+
+JSON shape (one object per action):
+
+```json
+[
+  {
+    "id": "ios_test_flight",
+    "title": "iOS — TestFlight build & upload",
+    "description": "Builds the .ipa and uploads it to TestFlight.",
+    "category": "ios_release"
+  }
+]
+```
+
+```bash
+fastlane_cli list --category ios_release --json
+```
+
+### `fastlane_cli init`
+
+```
+fastlane_cli init [--app-name <name>] [--platform ios|android|both] [--force]
+```
+
+Scaffold a minimal `cli_profile.yaml` in the current directory. Writes inline
+comments pointing at the credential env vars for the chosen platform. Exits
+`73` (`EX_CANTCREAT`) if `cli_profile.yaml` already exists and `--force` was
+not passed.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--app-name` | `my-app` | Value written into `app.name` in the scaffold. |
+| `--platform` | `both` | Which credential-hint comment block to keep. One of `ios`, `android`, `both`. |
+| `--force` | `false` | Overwrite an existing `cli_profile.yaml`. |
+
+```bash
+fastlane_cli init --app-name my-app --platform ios
+```
+
+### `fastlane_cli doctor`
+
+```
+fastlane_cli doctor [--profile <path>]
+```
+
+Runs environment checks for the active profile: locates and parses the
+profile, then validates the surrounding toolchain (Ruby version, Fastlane
+version, bundle cache presence, declared credentials reachable). Implementation
+of the full check matrix is in progress (Track B2); the user-facing contract
+is stable:
+
+- Exit `0` — all required checks passed. Warnings (non-fatal advisories) may
+  still print to stdout.
+- Exit `1` — one or more required checks failed; lane execution would be
+  unsafe.
+- Exit `66` — could not locate `cli_profile.yaml` (same resolution rules as
+  every other subcommand).
+
+| Flag | Description |
+|---|---|
+| `--profile`, `-p` | Profile path (standard three-tier resolution). |
+
+```bash
+fastlane_cli doctor --profile ./cli_profile.yaml
+```
+
+### `fastlane_cli skills install`
+
+```
+fastlane_cli skills install [--global|--project] [--force] [--dry-run]
+```
+
+Copy the bundled [`skills/`](skills/) directory into a Claude Code skills
+location. `--global` and `--project` are mutually exclusive; `--project`
+(`<cwd>/.claude/skills/`) is the default. Without `--force`, existing skill
+directories are left untouched (idempotent).
+
+| Flag | Description |
+|---|---|
+| `--project` | Install into `<cwd>/.claude/skills/`. Default. |
+| `--global` | Install into `~/.claude/skills/` instead. |
+| `--force` | Overwrite existing skill directories of the same name. |
+| `--dry-run` | List what would be copied; do not write anything. |
+
+```bash
+fastlane_cli skills install --project
+fastlane_cli skills install --global --force
+```
+
+### `fastlane_cli completion <bash|zsh|fish>`
+
+```
+fastlane_cli completion <bash|zsh|fish> [--profile <path>]
+```
+
+Emit a shell completion script to stdout. Subcommand names are always
+included; action ids are appended when a profile is discoverable (so
+`fastlane_cli run <TAB>` completes them). A missing or malformed profile is
+not fatal — completion still works for the static subcommand list.
+
+| Flag | Description |
+|---|---|
+| `--profile`, `-p` | Profile path used to enumerate action ids. Optional. |
+
+Install (per shell):
+
+```bash
+# bash — add to ~/.bashrc
+source <(fastlane_cli completion bash)
+
+# zsh — add to ~/.zshrc
+source <(fastlane_cli completion zsh)
+
+# fish — write into the completions directory
+fastlane_cli completion fish > ~/.config/fish/completions/fastlane_cli.fish
+```
 
 ## Skills
 
-Coming in v0.1 — see [ROADMAP Track C](ROADMAP.md).
+The CLI ships a set of bundled **Claude Code skills** — natural-language
+workflows that wrap the subcommands above. Each skill lives in its own
+directory under [`skills/`](skills/) with a `SKILL.md` whose frontmatter
+declares the trigger keywords. Consumers drop the tree into their Claude
+config (project-local or global) and Claude Code matches user requests like
+"ship a TestFlight" or "what version are we on?" to the right skill, which in
+turn invokes `fastlane_cli`.
+
+| Skill | One-liner |
+|---|---|
+| [`fastlane-cli-setup`](skills/fastlane-cli-setup/SKILL.md) | Scaffold a per-app `cli_profile.yaml` and the credential env vars needed to drive fastlane_cli in a fresh Flutter project. |
+| [`fastlane-cli-run`](skills/fastlane-cli-run/SKILL.md) | Translate a natural-language request into a concrete `fastlane_cli run <action-id>` invocation. |
+| [`fastlane-version-bump`](skills/fastlane-version-bump/SKILL.md) | Inspect or bump the Flutter app's pubspec `version: X.Y.Z+N` and reconcile it with the Android Play track and the App Store Connect build number. |
+| [`fastlane-metadata-sync`](skills/fastlane-metadata-sync/SKILL.md) | Pull or push store metadata (titles, descriptions, release notes, screenshots, App Privacy) between the local `fastlane/metadata/` tree and the App Store / Play Console. |
+| [`fastlane-testflight`](skills/fastlane-testflight/SKILL.md) | End-to-end iOS TestFlight release flow via fastlane_cli — credential prerequisites, version handling, and the canonical action ids. |
+| [`fastlane-play-internal`](skills/fastlane-play-internal/SKILL.md) | End-to-end Android Play Console internal-track release flow via fastlane_cli — service account, version handling, and the canonical action ids. |
+| [`fastlane-doctor`](skills/fastlane-doctor/SKILL.md) | Diagnose fastlane_cli env/credential/toolchain issues before invoking a lane. |
+| [`fastlane-summary-log`](skills/fastlane-summary-log/SKILL.md) | Add a coloured, box-bordered "human summary" log block to fastlane lanes and storepilot_bridge commands. |
+
+How to install:
+
+```bash
+fastlane_cli skills install --project   # repo-local: <cwd>/.claude/skills/
+fastlane_cli skills install --global    # user-wide:  ~/.claude/skills/
+```
+
+See [`skills/README.md`](skills/README.md) for the canonical index and
+authoring rules.
