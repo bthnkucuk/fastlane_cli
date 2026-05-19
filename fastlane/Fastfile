@@ -62,7 +62,7 @@ lane :get_version_data do |options|
 
   android_line = ""
   begin
-    android_line = FastlaneCliConfig.run_subline(:android, :get_android_version_data, android_options).to_s.strip
+    android_line = FastlaneCliConfig.run_subline(self, :android, :get_android_version_data, android_options).to_s.strip
   rescue => e
     UI.important("⚠️ Android version fetch failed: #{e.message}. Fallback unknown|0")
     android_line = "unknown|0"
@@ -70,7 +70,7 @@ lane :get_version_data do |options|
 
   ios_line = ""
   begin
-    ios_line = FastlaneCliConfig.run_subline(:ios, :get_ios_version_data, ios_options).to_s.strip
+    ios_line = FastlaneCliConfig.run_subline(self, :ios, :get_ios_version_data, ios_options).to_s.strip
   rescue => e
     UI.important("⚠️ iOS version fetch failed: #{e.message}. Fallback unknown|0")
     ios_line = "unknown|0"
@@ -211,7 +211,7 @@ lane :internal_test do |options|
 
   if run_android
     # In-process invocation (see v0.4.1 / `run_subline` rationale above).
-    FastlaneCliConfig.run_subline(:android, :internal_testing, options)
+    FastlaneCliConfig.run_subline(self, :android, :internal_testing, options)
   end
 
   if run_ios
@@ -227,7 +227,7 @@ lane :internal_test do |options|
     end
 
     # In-process invocation (see v0.4.1 / `run_subline` rationale above).
-    FastlaneCliConfig.run_subline(:ios, :test_flight, options)
+    FastlaneCliConfig.run_subline(self, :ios, :test_flight, options)
   end
 
   FastlaneCliConfig.print_summary_box(
@@ -252,9 +252,9 @@ lane :firebase_distribute do |options|
   case target_platform
   when "android"
     # In-process invocation (see v0.4.1 / `run_subline` rationale above).
-    FastlaneCliConfig.run_subline(:android, :firebase_distribute, options)
+    FastlaneCliConfig.run_subline(self, :android, :firebase_distribute, options)
   when "ios"
-    FastlaneCliConfig.run_subline(:ios, :firebase_distribute, options)
+    FastlaneCliConfig.run_subline(self, :ios, :firebase_distribute, options)
   else
     UI.user_error!("Unsupported platform: #{target_platform}")
   end
