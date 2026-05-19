@@ -47,60 +47,34 @@ end
 
 desc "Get Android + iOS versions and return version|build"
 lane :get_version_data do |options|
-  android_tokens = FastlaneCliConfig.fastlane_option_tokens(
-    options,
-    allowed_keys: %i[flavor package_name app_identifier track pubspec_path]
-  )
-  ios_tokens = FastlaneCliConfig.fastlane_option_tokens(
-    options,
-    allowed_keys: %i[flavor app_identifier bundle_identifier pubspec_path]
-  )
+  # NOTE: previously `sh("cd #{runner} && fastlane android get_android_version_data ...")`
+  # — that spawned a second fastlane child via the shell, which broke
+  # interactive prompt forwarding (v0.4.0 PTY routing only reached the
+  # outer process). In v0.4.1 we invoke the platform lanes in-process via
+  # `FastlaneCliConfig.run_subline`, so stdin / lane_context / TTY are
+  # shared with the outer fastlane.
+  android_options = options.select do |key, _value|
+    %i[flavor package_name app_identifier track pubspec_path].include?(key.to_sym)
+  end
+  ios_options = options.select do |key, _value|
+    %i[flavor app_identifier bundle_identifier pubspec_path].include?(key.to_sym)
+  end
 
-  android_raw = ""
+  android_line = ""
   begin
-    android_raw = sh(
-      FastlaneCliConfig.in_runner_root(
-        FastlaneCliConfig.shell_join(
-          ["fastlane android get_android_version_data", *android_tokens]
-        ),
-        options
-      )
-    ).to_s
+    android_line = FastlaneCliConfig.run_subline(:android, :get_android_version_data, android_options).to_s.strip
   rescue => e
     UI.important("⚠️ Android version fetch failed: #{e.message}. Fallback unknown|0")
-    android_raw = "[VERSION_DATA] unknown|0"
+    android_line = "unknown|0"
   end
 
-  ios_raw = ""
+  ios_line = ""
   begin
-    ios_raw = sh(
-      FastlaneCliConfig.in_runner_root(
-        FastlaneCliConfig.shell_join(
-          ["fastlane ios get_ios_version_data", *ios_tokens]
-        ),
-        options
-      )
-    ).to_s
+    ios_line = FastlaneCliConfig.run_subline(:ios, :get_ios_version_data, ios_options).to_s.strip
   rescue => e
     UI.important("⚠️ iOS version fetch failed: #{e.message}. Fallback unknown|0")
-    ios_raw = "[VERSION_DATA] unknown|0"
+    ios_line = "unknown|0"
   end
-
-  android_line = android_raw
-    .split("\n")
-    .select { |line| line.include?("[VERSION_DATA]") }
-    .last
-    .to_s
-    .gsub(/.*\[VERSION_DATA\]\s*/, "")
-    .strip
-
-  ios_line = ios_raw
-    .split("\n")
-    .select { |line| line.include?("[VERSION_DATA]") }
-    .last
-    .to_s
-    .gsub(/.*\[VERSION_DATA\]\s*/, "")
-    .strip
 
   a_version, a_build = android_line.split("|", 2)
   i_version, i_build = ios_line.split("|", 2)
@@ -236,15 +210,8 @@ lane :internal_test do |options|
   sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options)) if run_pub_get
 
   if run_android
-    android_tokens = FastlaneCliConfig.fastlane_option_tokens(options)
-    sh(
-      FastlaneCliConfig.in_runner_root(
-        FastlaneCliConfig.shell_join(
-          ["fastlane android internal_testing", *android_tokens]
-        ),
-        options
-      )
-    )
+    # In-process invocation (see v0.4.1 / `run_subline` rationale above).
+    FastlaneCliConfig.run_subline(:android, :internal_testing, options)
   end
 
   if run_ios
@@ -259,15 +226,8 @@ lane :internal_test do |options|
       sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
     end
 
-    ios_tokens = FastlaneCliConfig.fastlane_option_tokens(options)
-    sh(
-      FastlaneCliConfig.in_runner_root(
-        FastlaneCliConfig.shell_join(
-          ["fastlane ios test_flight", *ios_tokens]
-        ),
-        options
-      )
-    )
+    # In-process invocation (see v0.4.1 / `run_subline` rationale above).
+    FastlaneCliConfig.run_subline(:ios, :test_flight, options)
   end
 
   FastlaneCliConfig.print_summary_box(
@@ -288,27 +248,13 @@ end
 desc "Build and distribute to Firebase App Distribution"
 lane :firebase_distribute do |options|
   target_platform = (options[:platform] || "android").to_s.downcase
-  tokens = FastlaneCliConfig.fastlane_option_tokens(options)
 
   case target_platform
   when "android"
-    sh(
-      FastlaneCliConfig.in_runner_root(
-        FastlaneCliConfig.shell_join(
-          ["fastlane android firebase_distribute", *tokens]
-        ),
-        options
-      )
-    )
+    # In-process invocation (see v0.4.1 / `run_subline` rationale above).
+    FastlaneCliConfig.run_subline(:android, :firebase_distribute, options)
   when "ios"
-    sh(
-      FastlaneCliConfig.in_runner_root(
-        FastlaneCliConfig.shell_join(
-          ["fastlane ios firebase_distribute", *tokens]
-        ),
-        options
-      )
-    )
+    FastlaneCliConfig.run_subline(:ios, :firebase_distribute, options)
   else
     UI.user_error!("Unsupported platform: #{target_platform}")
   end

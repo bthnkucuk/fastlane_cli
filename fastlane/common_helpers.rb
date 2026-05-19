@@ -248,6 +248,34 @@ module FastlaneCliConfig
     "cd #{Shellwords.escape(runner_root)} && #{command}"
   end
 
+  # In-process cross-platform lane invocation.
+  #
+  # Replaces the pre-v0.4.1 pattern of
+  #   sh("cd <runner> && fastlane <platform> <lane> k:v ...")
+  # which spawned a *second* fastlane process via the shell. That child
+  # process inherits the outer process's stdin file descriptor but NOT the
+  # PTY-level routing v0.4.0's PromptParser uses — so when a sub-lane
+  # prompts (e.g. App Store Connect 2FA), the user's typed response goes to
+  # the outer process and the child waits forever.
+  #
+  # `Fastlane::FastFile.runner.execute` invokes the lane in the SAME Ruby
+  # process. Stdin, lane_context, SharedValues, fastlane env, and the
+  # current TTY are all shared, so:
+  #   - Interactive prompts (2FA, yes/no) appear to the outer PTY directly.
+  #   - The lane's return value is returned to the caller (no need to
+  #     parse stdout for `[VERSION_DATA]` markers, though existing parsing
+  #     is preserved for backward compatibility).
+  #   - Errors propagate as Ruby exceptions, which call sites rescue and
+  #     translate into the same "fallback unknown|0" log line as before.
+  #
+  # Requires the platform Fastfiles to be `import`-ed into the same
+  # FastFile context. Top-level `fastlane/Fastfile` already does this:
+  #   import File.expand_path("android/Fastfile", __dir__)
+  #   import File.expand_path("ios/Fastfile",     __dir__)
+  def run_subline(platform, lane, options = {})
+    Fastlane::FastFile.runner.execute(lane.to_sym, platform.to_sym, options)
+  end
+
   def app_root_prefixed_option_tokens(options = {}, allowed_keys: nil, path_keys: [])
     return [] unless options.respond_to?(:to_h)
 

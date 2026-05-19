@@ -569,4 +569,60 @@ RSpec.describe FastlaneCliConfig do
       expect(true).to be true
     end
   end
+
+  describe ".run_subline" do
+    # `run_subline` is the v0.4.1 helper that replaces the v0.3.2
+    # `sh("cd #{runner} && fastlane <platform> <lane>")` pattern with an
+    # in-process call. The spec layer does not load the real fastlane gem
+    # (it's enormous and would make the suite slow), so we stand up a
+    # minimal `Fastlane::FastFile.runner.execute` double and assert that
+    # the helper forwards (lane, platform, options) onto it with the
+    # correct symbol coercion.
+    before(:each) do
+      stub_const("Fastlane", Module.new)
+
+      runner_double = Object.new
+      received = []
+      runner_double.define_singleton_method(:execute) do |lane, platform, params|
+        received << [lane, platform, params]
+        "executed:#{platform}:#{lane}:#{params.inspect}"
+      end
+      runner_double.define_singleton_method(:received) { received }
+
+      fast_file = Class.new
+      fast_file.define_singleton_method(:runner) { runner_double }
+      Fastlane.const_set(:FastFile, fast_file)
+
+      @runner_double = runner_double
+    end
+
+    it "forwards lane and platform onto Fastlane::FastFile.runner.execute as symbols" do
+      result = described_class.run_subline("android", "internal_testing", flavor: "prod")
+      expect(@runner_double.received).to eq([
+        [:internal_testing, :android, { flavor: "prod" }]
+      ])
+      expect(result).to match(/executed:android:internal_testing/)
+    end
+
+    it "coerces symbol input the same as string input" do
+      described_class.run_subline(:ios, :test_flight, {})
+      expect(@runner_double.received).to eq([
+        [:test_flight, :ios, {}]
+      ])
+    end
+
+    it "defaults options to an empty hash" do
+      described_class.run_subline(:ios, :get_ios_version_data)
+      expect(@runner_double.received.first).to eq([:get_ios_version_data, :ios, {}])
+    end
+
+    it "propagates exceptions raised by the runner so callers can rescue/fallback" do
+      @runner_double.define_singleton_method(:execute) do |*_args|
+        raise StandardError, "lane blew up"
+      end
+
+      expect { described_class.run_subline(:ios, :test_flight) }
+        .to raise_error(StandardError, "lane blew up")
+    end
+  end
 end
