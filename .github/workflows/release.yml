@@ -40,17 +40,36 @@ jobs:
   build:
     name: Build ${{ matrix.os_label }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    # Cap each matrix leg so a queue-stuck GitHub-hosted runner (notably the
+    # Intel macos-13 pool, which has repeatedly held v0.x.0 tag pushes for
+    # 40+ min before manual cancellation) blocks the release for ≤20 min
+    # instead of hours. linux-x86_64 and macos-arm64 currently complete in
+    # ~2 min; 20 min is generous headroom.
+    timeout-minutes: 20
+    # Propagate the per-matrix-entry `continue-on-error` flag to the job
+    # itself (GH Actions only reads `continue-on-error` at job/step level —
+    # putting it inside the matrix entry on its own is not enough). The
+    # `|| false` fallback keeps legs without the flag strict.
+    # Docs: https://docs.github.com/en/actions/using-jobs/using-a-build-matrix-for-your-jobs#handling-failures
+    continue-on-error: ${{ matrix.continue-on-error || false }}
     strategy:
-      # Surface all platform issues at once when cutting a release.
+      # Surface all platform issues at once when cutting a release. Combined
+      # with the per-leg `continue-on-error` below this means an Intel-only
+      # failure / timeout no longer cancels the arm64 and linux siblings.
       fail-fast: false
       matrix:
         include:
           - runner: macos-14
             os_label: macos
             arch: arm64
+          # Intel macOS is the chronically-flaky leg (GitHub-hosted pool is
+          # being wound down). Mark it non-blocking so a queue-stuck or
+          # timed-out Intel build does NOT fail the workflow — the `publish`
+          # job below tolerates a missing Intel tarball.
           - runner: macos-13
             os_label: macos
             arch: x86_64
+            continue-on-error: true
           - runner: ubuntu-latest
             os_label: linux
             arch: x86_64
@@ -63,8 +82,12 @@ jobs:
       # `dart pub get` refuses to resolve without the Flutter toolchain on
       # PATH. Install Flutter; Dart ships bundled and `dart` works for our
       # compile/test pipeline below.
+      #
+      # Pinned to commit SHA (instead of the floating `v2` tag) so a
+      # transient `codeload.github.com` blip or a surprise tag re-point
+      # can't break a tagged release mid-flight. Bump deliberately.
       - name: Set up Flutter (provides Dart)
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2 @ 2026-03-25
         with:
           flutter-version: "3.41.0"
           channel: stable
@@ -198,6 +221,18 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs: build
+    # The `build` matrix marks `macos-x86_64` as `continue-on-error: true`,
+    # so a stuck/timed-out Intel leg surfaces as `needs.build.result ==
+    # 'success'` (matrix-level continue-on-error legs do not flip the
+    # aggregate to 'failure'). We still want to publish when arm64 + linux
+    # succeeded even if Intel was the only failure, so additionally guard
+    # with `always()` + a check that the result is success OR failure (not
+    # 'cancelled' — a cancelled build means the human pulled the plug and
+    # we should respect that). The downstream "Verify required tarballs"
+    # step below is the real gate: it fails the publish job if either
+    # required platform tarball is missing, regardless of the matrix
+    # aggregate.
+    if: ${{ always() && (needs.build.result == 'success' || needs.build.result == 'failure') }}
     runs-on: ubuntu-latest
     steps:
       - name: Download tarball artifacts
@@ -213,6 +248,42 @@ jobs:
           pattern: checksum-*
           path: checksum-lines
           merge-multiple: true
+
+      # Required-platform gate. arm64 macOS and Linux x86_64 MUST be present
+      # — those are the two platforms the Homebrew formula resolves to on
+      # contemporary user machines. macOS Intel is best-effort: if its
+      # tarball is missing (Intel leg timed out, queued forever, etc.) we
+      # log a warning and continue so the release still ships.
+      - name: Verify required tarballs
+        run: |
+          set -euo pipefail
+          required=(
+            "dist/fastlane_cli-macos-arm64.tar.gz"
+            "dist/fastlane_cli-macos-arm64.tar.gz.sha256"
+            "dist/fastlane_cli-linux-x86_64.tar.gz"
+            "dist/fastlane_cli-linux-x86_64.tar.gz.sha256"
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::required artifact missing: $f"
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "::error::Cannot publish release — one or more required platform tarballs are missing."
+            exit 1
+          fi
+
+          optional=(
+            "dist/fastlane_cli-macos-x86_64.tar.gz"
+            "dist/fastlane_cli-macos-x86_64.tar.gz.sha256"
+          )
+          for f in "${optional[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::warning::optional artifact missing (Intel macOS build likely timed out / was non-blocking): $f"
+            fi
+          done
 
       # Assemble a single SHA256 block for the release body. The fenced
       # ```text block is what Track D2's tap-update workflow sed-extracts
@@ -234,8 +305,15 @@ jobs:
           } > release-body.md
           echo "path=release-body.md" >> "$GITHUB_OUTPUT"
 
+      # Pinned to commit SHA (instead of the floating `v2` tag) so a
+      # transient `codeload.github.com` blip or a surprise tag re-point
+      # can't break a tagged release mid-flight. Bump deliberately.
+      #
+      # `fail_on_unmatched_files: false` because the macOS-x86_64 tarball is
+      # allowed to be absent (Intel leg is non-blocking). The required-
+      # platform gate above is the real correctness check.
       - name: Create / update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 @ 2026-04-12 (2.6.2)
         with:
           # `github.ref_name` resolves to the pushed tag (e.g. `v0.1.0`).
           tag_name: ${{ github.ref_name }}
@@ -243,7 +321,7 @@ jobs:
           body_path: ${{ steps.body.outputs.path }}
           draft: false
           prerelease: false
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
           files: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256
