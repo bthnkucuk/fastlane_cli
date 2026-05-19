@@ -4,6 +4,7 @@ import 'package:args/args.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:zenrouter_nocterm/zenrouter_nocterm.dart';
 
+import '../cli/profile_resolver.dart';
 import '../localization/parse_locale.dart';
 import '../model/run_session.dart';
 import '../routing/coordinator.dart';
@@ -16,10 +17,18 @@ import '../services/preflight_validator.dart';
 import '../services/profile_loader.dart';
 
 class FastlaneCliLauncher {
-  FastlaneCliLauncher({ProfileLoader? profileLoader})
+  FastlaneCliLauncher({ProfileLoader? profileLoader, this.resolver})
     : profileLoader = profileLoader ?? const ProfileLoader();
 
   final ProfileLoader profileLoader;
+
+  /// Optional four-tier profile resolver. When provided (the default in
+  /// production via [FastlaneCliRunner]), the launcher will fall back to the
+  /// same `--profile → $FASTLANE_CLI_PROFILE → walk-up → ./cli_profile.yaml`
+  /// chain that subcommands use. Left nullable so the legacy "Missing
+  /// --profile option" branch still compiles and a few unit tests can opt
+  /// out cleanly.
+  final ProfileResolver? resolver;
 
   Future<int> run(List<String> arguments) async {
     final parser = ArgParser()
@@ -47,8 +56,27 @@ class FastlaneCliLauncher {
         return 0;
       }
 
-      final profilePath = result.option('profile');
-      if (profilePath == null || profilePath.trim().isEmpty) {
+      final explicitProfile = result.option('profile');
+      final hasExplicit =
+          explicitProfile != null && explicitProfile.trim().isNotEmpty;
+
+      final String profilePath;
+      if (hasExplicit && resolver == null) {
+        // Legacy fast path: explicit flag, no resolver injected.
+        profilePath = explicitProfile;
+      } else if (resolver != null) {
+        try {
+          profilePath = resolver!.resolve(
+            explicit: hasExplicit ? explicitProfile : null,
+          );
+        } on ProfileResolutionException catch (error) {
+          stderr.writeln(error.toString());
+          return 66;
+        }
+      } else {
+        // No resolver and no explicit flag → preserve the original error so
+        // any callers wiring the launcher directly still get the legacy
+        // remediation message.
         stderr.writeln('Missing --profile option.');
         stderr.writeln(parser.usage);
         return 64;

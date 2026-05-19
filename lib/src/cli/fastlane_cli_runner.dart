@@ -9,6 +9,7 @@ import 'completion_command.dart';
 import 'doctor_command.dart';
 import 'init_command.dart';
 import 'list_command.dart';
+import 'profile_resolver.dart';
 import 'run_command.dart';
 import 'skills_install_command.dart';
 
@@ -19,7 +20,8 @@ import 'skills_install_command.dart';
 /// TUI keeps working exactly as it did before Wave 2 / Track A2.
 class FastlaneCliRunner extends CommandRunner<int> {
   FastlaneCliRunner({FastlaneCliLauncher? launcher})
-    : _launcher = launcher ?? FastlaneCliLauncher(),
+    : _launcher =
+          launcher ?? FastlaneCliLauncher(resolver: const ProfileResolver()),
       super(
         'fastlane_cli',
         'Terminal-first Fastlane assistant for Flutter projects.',
