@@ -158,9 +158,76 @@ class Translations with BaseTranslations<AppLocale, Translations> {
 	/// tr: 'Dil'
 	String get localeLabel => 'Dil';
 
+	late final TranslationsPromptTr prompt = TranslationsPromptTr.internal(_root);
 	late final TranslationsStatusTr status = TranslationsStatusTr.internal(_root);
 	late final TranslationsPaletteTr palette = TranslationsPaletteTr.internal(_root);
 	late final TranslationsGuidesTr guides = TranslationsGuidesTr.internal(_root);
+}
+
+// Path: prompt
+class TranslationsPromptTr {
+	TranslationsPromptTr.internal(this._root);
+
+	final Translations _root; // ignore: unused_field
+
+	// Translations
+
+	/// tr: 'İki faktörlü doğrulama kodu'
+	String get twoFactorTitle => 'İki faktörlü doğrulama kodu';
+
+	/// tr: '${digits} haneli kodu giriniz'
+	String twoFactorBody({required Object digits}) => '${digits} haneli kodu giriniz';
+
+	/// tr: '${digits} haneli kod'
+	String twoFactorHint({required Object digits}) => '${digits} haneli kod';
+
+	/// tr: 'Onay'
+	String get yesNoTitle => 'Onay';
+
+	/// tr: 'Lane evet/hayır yanıtı bekliyor.'
+	String get yesNoBody => 'Lane evet/hayır yanıtı bekliyor.';
+
+	/// tr: 'Bu bilgisayara güveniliyor mu?'
+	String get trustComputerTitle => 'Bu bilgisayara güveniliyor mu?';
+
+	/// tr: 'Apple, bu bilgisayara App Store Connect için güvenip güvenmediğini soruyor.'
+	String get trustComputerBody => 'Apple, bu bilgisayara App Store Connect için güvenip güvenmediğini soruyor.';
+
+	/// tr: 'Bir seçenek seçin'
+	String get chooseIndexTitle => 'Bir seçenek seçin';
+
+	/// tr: '${lo} ile ${hi} arasında bir sayı seçin'
+	String chooseIndexBody({required Object lo, required Object hi}) => '${lo} ile ${hi} arasında bir sayı seçin';
+
+	/// tr: 'Lane giriş bekliyor'
+	String get freeFormTitle => 'Lane giriş bekliyor';
+
+	/// tr: 'Gönder'
+	String get submit => 'Gönder';
+
+	/// tr: 'İptal'
+	String get cancel => 'İptal';
+
+	/// tr: 'Evet'
+	String get yes => 'Evet';
+
+	/// tr: 'Hayır'
+	String get no => 'Hayır';
+
+	/// tr: '${n} haneli olmalı'
+	String errorWrongLength({required Object n}) => '${n} haneli olmalı';
+
+	/// tr: 'Yalnızca rakam'
+	String get errorOnlyDigits => 'Yalnızca rakam';
+
+	/// tr: 'y/n giriniz'
+	String get errorYesOrNo => 'y/n giriniz';
+
+	/// tr: '${lo}-${hi} arası olmalı'
+	String errorOutOfRange({required Object lo, required Object hi}) => '${lo}-${hi} arası olmalı';
+
+	/// tr: 'Zorunlu'
+	String get errorRequired => 'Zorunlu';
 }
 
 // Path: status
@@ -345,6 +412,25 @@ extension on Translations {
 			'guideFallback' => 'Bu konu için kılavuz yok.',
 			'dryRunLabel' => 'Dry-run (simülasyon)',
 			'localeLabel' => 'Dil',
+			'prompt.twoFactorTitle' => 'İki faktörlü doğrulama kodu',
+			'prompt.twoFactorBody' => ({required Object digits}) => '${digits} haneli kodu giriniz',
+			'prompt.twoFactorHint' => ({required Object digits}) => '${digits} haneli kod',
+			'prompt.yesNoTitle' => 'Onay',
+			'prompt.yesNoBody' => 'Lane evet/hayır yanıtı bekliyor.',
+			'prompt.trustComputerTitle' => 'Bu bilgisayara güveniliyor mu?',
+			'prompt.trustComputerBody' => 'Apple, bu bilgisayara App Store Connect için güvenip güvenmediğini soruyor.',
+			'prompt.chooseIndexTitle' => 'Bir seçenek seçin',
+			'prompt.chooseIndexBody' => ({required Object lo, required Object hi}) => '${lo} ile ${hi} arasında bir sayı seçin',
+			'prompt.freeFormTitle' => 'Lane giriş bekliyor',
+			'prompt.submit' => 'Gönder',
+			'prompt.cancel' => 'İptal',
+			'prompt.yes' => 'Evet',
+			'prompt.no' => 'Hayır',
+			'prompt.errorWrongLength' => ({required Object n}) => '${n} haneli olmalı',
+			'prompt.errorOnlyDigits' => 'Yalnızca rakam',
+			'prompt.errorYesOrNo' => 'y/n giriniz',
+			'prompt.errorOutOfRange' => ({required Object lo, required Object hi}) => '${lo}-${hi} arası olmalı',
+			'prompt.errorRequired' => 'Zorunlu',
 			'status.idle' => 'Bekleniyor',
 			'status.validating' => 'Doğrulanıyor',
 			'status.blocked' => 'Bloklandı',

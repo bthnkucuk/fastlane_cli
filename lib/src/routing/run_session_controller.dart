@@ -8,6 +8,7 @@ import '../model/cli_action.dart';
 import '../model/command_request.dart';
 import '../model/run_session.dart';
 import '../services/command_execution_service.dart';
+import '../services/run_prompt_parser.dart';
 import 'environment.dart';
 
 /// Per-tab run session state. Replaces the cubit's
@@ -24,6 +25,17 @@ class RunSessionController extends ChangeNotifier {
 
   bool _isRunning = false;
   bool get isRunning => _isRunning;
+
+  /// The live child handle, set while a process is running. The prompt modal
+  /// uses this to push the user's response back to the child's stdin.
+  RunningProcess? _running;
+
+  /// Test-only hook so unit tests can inject a fake [RunningProcess] without
+  /// going through the executor. Production code never calls this.
+  // ignore: use_setters_to_change_properties
+  void debugAttachRunningProcess(RunningProcess process) {
+    _running = process;
+  }
 
   void _emit(RunSession next) {
     _session = next;
@@ -163,6 +175,9 @@ class RunSessionController extends ChangeNotifier {
         request,
         dryRun: environment.dryRun,
         onLog: (event) => _appendLog(event.message, isError: event.isError),
+        onProcess: (process) {
+          _running = process;
+        },
       );
     } catch (error) {
       _emit(
@@ -181,6 +196,7 @@ class RunSessionController extends ChangeNotifier {
         ),
       );
       _isRunning = false;
+      _running = null;
       return _session;
     }
 
@@ -206,11 +222,19 @@ class RunSessionController extends ChangeNotifier {
       ),
     );
     _isRunning = false;
+    _running = null;
     return _session;
   }
 
   void _appendLog(String line, {required bool isError}) {
     final progressUpdate = environment.progressParser.parse(line);
+
+    // Only look for a prompt when one isn't already pending. Fastlane often
+    // echoes the same prompt twice (once on first print, once on retry), and
+    // overwriting `activePrompt` mid-modal would reset the user's typing.
+    final RunPrompt? newPrompt =
+        _session.activePrompt == null ? environment.promptParser.parse(line) : null;
+
     _emit(
       _session.copyWith(
         logs: _bounded([
@@ -222,8 +246,55 @@ class RunSessionController extends ChangeNotifier {
             progressUpdate?.indeterminate ?? _session.progressIndeterminate,
         progressValue:
             progressUpdate?.progressValue ?? _session.progressValue,
+        activePrompt: newPrompt ?? _session.activePrompt,
       ),
     );
+  }
+
+  /// Submit the user's response to the currently-active prompt. Runs the
+  /// validator; if it returns an error, the modal stays open with the error
+  /// message attached. On valid input, writes the line to the child's stdin
+  /// and clears [RunSession.activePrompt].
+  ///
+  /// Returns the validator error (or null on success) so callers (the modal)
+  /// can show it inline before the dialog re-renders.
+  Future<String?> submitPromptResponse(String value) async {
+    final prompt = _session.activePrompt;
+    if (prompt == null) return null;
+    final error = prompt.validator(value);
+    if (error != null) {
+      _emit(_session.copyWith(activePrompt: prompt.withValidationError(error)));
+      return error;
+    }
+    final wrote = await _running?.writeStdin(value) ?? false;
+    _emit(
+      _session.copyWith(
+        activePrompt: null,
+        respondedAt: DateTime.now(),
+        logs: _bounded([
+          ..._session.logs,
+          RunLogEntry(
+            message: wrote
+                ? '[prompt] response sent'
+                : '[prompt] response NOT sent (no live process)',
+            isError: !wrote,
+          ),
+        ]),
+      ),
+    );
+    return null;
+  }
+
+  /// Drop the active prompt without responding. By default this also relays
+  /// SIGINT to the child — dismissing an open prompt implies "stop this
+  /// lane". Set [sigint] to false to clear the dialog without aborting the
+  /// run (used by tests).
+  void dismissPrompt({bool sigint = true}) {
+    if (_session.activePrompt == null) return;
+    if (sigint) {
+      _running?.signal(ProcessSignal.sigint);
+    }
+    _emit(_session.copyWith(activePrompt: null));
   }
 
   List<String> _overwriteTargets(CliAction action) {

@@ -172,6 +172,77 @@ void main() {
     );
 
     test(
+      'writeStdin round-trips bytes to the spawned child',
+      () async {
+        await ProcessSupervisor.instance.resetForTesting();
+        final service = ProcessCommandExecutionService(useUnixPty: false);
+        final temp =
+            await Directory.systemTemp.createTemp('fastlane_cli_stdin');
+        addTearDown(() => temp.delete(recursive: true));
+
+        // A sh one-liner that reads a line from stdin and echoes it. The
+        // child closes naturally after one line, which is enough to assert
+        // round-trip.
+        RunningProcess? captured;
+        final lines = <String>[];
+        final result = await service.run(
+          CommandRequest(
+            executable: '/bin/sh',
+            arguments: <String>['-c', 'read line && echo "got=\$line"'],
+            workingDirectory: temp.path,
+            environment: const <String, String>{},
+          ),
+          dryRun: false,
+          onLog: (e) => lines.add(e.message),
+          onProcess: (p) {
+            captured = p;
+            // Fire-and-forget write; the awaited run() will only return
+            // after the child has consumed it and exited.
+            // ignore: unawaited_futures
+            p.writeStdin('hello');
+          },
+        );
+
+        expect(captured, isNotNull);
+        expect(result.exitCode, 0);
+        expect(lines.any((l) => l.contains('got=hello')), isTrue,
+            reason: 'stdout=$lines');
+      },
+      skip: Platform.isWindows ? 'POSIX shell only' : false,
+    );
+
+    test(
+      'writeStdin returns false after the child exits',
+      () async {
+        await ProcessSupervisor.instance.resetForTesting();
+        final service = ProcessCommandExecutionService(useUnixPty: false);
+        final temp =
+            await Directory.systemTemp.createTemp('fastlane_cli_stdin_dead');
+        addTearDown(() => temp.delete(recursive: true));
+
+        RunningProcess? captured;
+        await service.run(
+          CommandRequest(
+            executable: '/bin/sh',
+            arguments: <String>['-c', 'echo ok'],
+            workingDirectory: temp.path,
+            environment: const <String, String>{},
+          ),
+          dryRun: false,
+          onLog: (_) {},
+          onProcess: (p) => captured = p,
+        );
+
+        expect(captured, isNotNull);
+        // After run() returns, the child is dead; writeStdin must not throw
+        // and must report false instead of silently succeeding.
+        final wrote = await captured!.writeStdin('late');
+        expect(wrote, isFalse);
+      },
+      skip: Platform.isWindows ? 'POSIX shell only' : false,
+    );
+
+    test(
       'deregisters child from ProcessSupervisor on natural exit',
       () async {
         await ProcessSupervisor.instance.resetForTesting();

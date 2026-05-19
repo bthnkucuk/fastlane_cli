@@ -14,6 +14,7 @@ import '../run_tabs_path.dart';
 import '../shell_layout.dart';
 import 'guide_route.dart';
 import 'home_route.dart';
+import 'prompt_dialog_route.dart';
 
 final class RunRoute extends AppRoute with RouteTab {
   RunRoute({required this.actionId, required this.controller});
@@ -111,6 +112,7 @@ class _RunViewState extends State<_RunView> {
   final AutoScrollController _logScrollController = AutoScrollController();
   String? _copyFeedback;
   Timer? _copyFeedbackTimer;
+  bool _promptDialogPushed = false;
 
   RunSessionController get _controller => component.route.controller;
 
@@ -149,7 +151,34 @@ class _RunViewState extends State<_RunView> {
   }
 
   void _onSessionChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _syncPromptDialog();
+    setState(() {});
+  }
+
+  /// Push (or pop) the interactive prompt dialog in lockstep with the
+  /// controller's `activePrompt` field. We track local `_promptDialogPushed`
+  /// state because the controller may emit several updates that don't change
+  /// the dialog's lifecycle (validator error attached, etc.) and we don't
+  /// want to push duplicate overlays.
+  void _syncPromptDialog() {
+    final prompt = _controller.session.activePrompt;
+    if (prompt != null && !_promptDialogPushed) {
+      _promptDialogPushed = true;
+      // ignore: unawaited_futures
+      component.coordinator.overlayPath.push(
+        PromptDialogRoute(controller: _controller),
+      );
+    } else if (prompt == null && _promptDialogPushed) {
+      _promptDialogPushed = false;
+      // The dialog handles its own pop on session change, but if the prompt
+      // was cleared from outside (e.g. process exited), make sure the
+      // overlay is gone.
+      final overlay = component.coordinator.overlayPath;
+      if (overlay.activeRoute is PromptDialogRoute) {
+        overlay.pop();
+      }
+    }
   }
 
   @override

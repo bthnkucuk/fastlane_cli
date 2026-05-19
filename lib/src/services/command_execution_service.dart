@@ -106,11 +106,33 @@ class CommandExecutionResult {
   final bool wasDryRun;
 }
 
+/// Handle the executor surfaces while a child is alive. Callers (the run
+/// session controller) keep a reference for the lifetime of the spawned
+/// process so they can write to stdin (e.g. answer a 2FA prompt) and signal
+/// the child (e.g. on dismiss of the prompt modal). See [RunningProcess].
+abstract class RunningProcess {
+  /// Write [line] (followed by `\n`) to the child's stdin. Returns true when
+  /// the bytes were handed to the process sink; false when the process has
+  /// already exited or the sink is otherwise unavailable. The caller is
+  /// responsible for trimming/normalising [line]; we do not modify it beyond
+  /// appending a trailing newline.
+  Future<bool> writeStdin(String line);
+
+  /// Send a signal to the child. Defaults to SIGINT, which is the same signal
+  /// the supervisor would send. Returns true when the signal was delivered
+  /// (or when there was no live process to signal).
+  bool signal([ProcessSignal signal = ProcessSignal.sigint]);
+
+  /// The OS-level pid. Useful for logging.
+  int get pid;
+}
+
 abstract class CommandExecutionService {
   Future<CommandExecutionResult> run(
     CommandRequest request, {
     required bool dryRun,
     required void Function(CommandLogEvent event) onLog,
+    void Function(RunningProcess process)? onProcess,
   });
 }
 
@@ -287,6 +309,7 @@ class ProcessCommandExecutionService implements CommandExecutionService {
     CommandRequest request, {
     required bool dryRun,
     required void Function(CommandLogEvent event) onLog,
+    void Function(RunningProcess process)? onProcess,
   }) async {
     if (dryRun) {
       onLog(
@@ -398,7 +421,17 @@ class ProcessCommandExecutionService implements CommandExecutionService {
     // by the in-app quit handler.
     _supervisor.register(process);
 
-    unawaited(process.stdin.close());
+    // Keep stdin attached — interactive child prompts (fastlane 2FA codes,
+    // "trust this computer", `(y/n)` confirms, multi-account pickers) write
+    // their question to stdout and then block on stdin. Closing stdin here
+    // would either EOF the prompt loop (older fastlane: instant abort) or
+    // leave it hanging forever (newer fastlane: tight retry loop). Instead
+    // we hand a [RunningProcess] back to the caller so the TUI can pop a
+    // modal, read the user's answer, and forward it to the child.
+    final running = _ProcessHandle(process);
+    if (onProcess != null) {
+      onProcess(running);
+    }
 
     final stdoutDone = process.stdout
         .transform(utf8.decoder)
@@ -418,8 +451,62 @@ class ProcessCommandExecutionService implements CommandExecutionService {
 
     final exitCode = await process.exitCode;
     await Future.wait(<Future<void>>[stdoutDone, stderrDone]);
+    // Best-effort: close stdin so any straggling write futures terminate.
+    // The child has already exited at this point, so any error here is
+    // benign — the handle is also marked dead so subsequent writeStdin
+    // attempts short-circuit cleanly.
+    running._markDead();
+    try {
+      await process.stdin.close();
+    } catch (_) {
+      // Sink may already be closed if the child closed its end first.
+    }
     _supervisor.unregister(process);
     return CommandExecutionResult(exitCode: exitCode, wasDryRun: false);
+  }
+}
+
+/// Concrete [RunningProcess] backing the live child started by
+/// [ProcessCommandExecutionService.run]. Keeps a reference to the underlying
+/// [Process] so it can write to stdin and (on dismiss/abort) signal the
+/// child. Marked dead by the run loop once the process exits so any
+/// post-exit `writeStdin` calls short-circuit instead of throwing.
+class _ProcessHandle implements RunningProcess {
+  _ProcessHandle(this._process);
+
+  final Process _process;
+  bool _dead = false;
+
+  void _markDead() {
+    _dead = true;
+  }
+
+  @override
+  int get pid => _process.pid;
+
+  @override
+  Future<bool> writeStdin(String line) async {
+    if (_dead) return false;
+    try {
+      _process.stdin.writeln(line);
+      await _process.stdin.flush();
+      return true;
+    } catch (_) {
+      // Child closed its stdin (e.g. it already moved past the prompt) or
+      // exited between our check and the write. Either way the caller
+      // doesn't need to do anything beyond logging.
+      return false;
+    }
+  }
+
+  @override
+  bool signal([ProcessSignal signal = ProcessSignal.sigint]) {
+    if (_dead) return true;
+    try {
+      return _process.kill(signal);
+    } catch (_) {
+      return false;
+    }
   }
 }
 
