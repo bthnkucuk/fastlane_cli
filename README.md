@@ -163,6 +163,23 @@ runs reuse it.
 **Coming soon** (Wave 3): `fastlane_cli doctor` and automatic first-run bundle
 installation into `~/Library/Caches/fastlane_cli/bundle/<ruby-abi>`.
 
+### Fastlane plugins
+
+The bundled runner ships a [`fastlane/Pluginfile`](fastlane/Pluginfile) that
+declares the plugins lanes depend on (currently
+`fastlane-plugin-firebase_app_distribution`, used by the `firebase_distribute`
+lane). Lanes invoke `fastlane` directly from the system / brew-installed gem,
+so plugins must be installed once into that gem's plugin path:
+
+```bash
+cd "$(brew --prefix fastlane_cli)/share/fastlane_cli/fastlane"
+fastlane install_plugins
+```
+
+Run this once after `brew install bthnkucuk/fastlane_cli/fastlane_cli`. If you
+do not use Firebase App Distribution you can ignore the
+"plugins couldn't be loaded" warning — every other lane still runs.
+
 ## Where things go
 
 The CLI loads your `cli_profile.yaml` and merges it on top of the bundled

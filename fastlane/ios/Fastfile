@@ -22,7 +22,7 @@ platform :ios do
     sh(
       FastlaneCliConfig.shell_join(
         [
-          "bundle exec fastlane deliver #{command}",
+          "fastlane deliver #{command}",
           "--force",
           "--app_identifier #{Shellwords.escape(app_identifier)}",
           "--#{path_flag} #{Shellwords.escape(target_path)}"

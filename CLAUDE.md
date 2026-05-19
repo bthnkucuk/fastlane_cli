@@ -106,6 +106,14 @@ The merge is implemented in `lib/src/services/profile_loader.dart`.
 
    storepilot_bridge invocations (when wired) keep the `bundle exec ruby
    storepilot_bridge.rb …` shape — that bundle is correct for the bridge.
+
+   The same "no `bundle exec`" rule applies to **sub-lane delegation
+   inside the Fastfile** via `sh("cd <runner> && fastlane <platform>
+   <lane> …")` (e.g. `get_version_data` fanning out to
+   `get_android_version_data` / `get_ios_version_data`). The brew formula
+   declares `depends_on "fastlane"` so the gem is on PATH; prefixing
+   `bundle exec` re-introduces the "Could not locate Gemfile" failure
+   the Dart-side fix in v0.2.1 already removed for the top-level call.
 4. `ProcessCommandExecutionService` spawns the process and streams logs into
    the TUI via `ansi_parsed_log_line`.
 

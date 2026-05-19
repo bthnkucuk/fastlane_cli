@@ -61,7 +61,7 @@ lane :get_version_data do |options|
     android_raw = sh(
       FastlaneCliConfig.in_runner_root(
         FastlaneCliConfig.shell_join(
-          ["bundle exec fastlane android get_android_version_data", *android_tokens]
+          ["fastlane android get_android_version_data", *android_tokens]
         ),
         options
       )
@@ -76,7 +76,7 @@ lane :get_version_data do |options|
     ios_raw = sh(
       FastlaneCliConfig.in_runner_root(
         FastlaneCliConfig.shell_join(
-          ["bundle exec fastlane ios get_ios_version_data", *ios_tokens]
+          ["fastlane ios get_ios_version_data", *ios_tokens]
         ),
         options
       )
@@ -240,7 +240,7 @@ lane :internal_test do |options|
     sh(
       FastlaneCliConfig.in_runner_root(
         FastlaneCliConfig.shell_join(
-          ["bundle exec fastlane android internal_testing", *android_tokens]
+          ["fastlane android internal_testing", *android_tokens]
         ),
         options
       )
@@ -263,7 +263,7 @@ lane :internal_test do |options|
     sh(
       FastlaneCliConfig.in_runner_root(
         FastlaneCliConfig.shell_join(
-          ["bundle exec fastlane ios test_flight", *ios_tokens]
+          ["fastlane ios test_flight", *ios_tokens]
         ),
         options
       )
@@ -295,7 +295,7 @@ lane :firebase_distribute do |options|
     sh(
       FastlaneCliConfig.in_runner_root(
         FastlaneCliConfig.shell_join(
-          ["bundle exec fastlane android firebase_distribute", *tokens]
+          ["fastlane android firebase_distribute", *tokens]
         ),
         options
       )
@@ -304,7 +304,7 @@ lane :firebase_distribute do |options|
     sh(
       FastlaneCliConfig.in_runner_root(
         FastlaneCliConfig.shell_join(
-          ["bundle exec fastlane ios firebase_distribute", *tokens]
+          ["fastlane ios firebase_distribute", *tokens]
         ),
         options
       )
