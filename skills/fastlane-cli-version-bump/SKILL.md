@@ -30,13 +30,17 @@ If a single PR spans multiple types, the highest-precedence change wins
 
 ## Where to update (atomic, in one commit)
 
-Touch exactly these two files in the same commit as the change being shipped:
+Touch exactly these three files in the same commit as the change being shipped:
 
 1. `pubspec.yaml` — the `version:` line. Format `X.Y.Z` (no `+N` build
    suffix; this CLI is not deployed to app stores).
 2. `dist/homebrew/Formula/fastlane_cli.rb` — the `version "X.Y.Z"` line.
    The `url` lines that contain `v0.1.0` are rewritten by release CI
    (Track D2) on tag push; the skill should not touch them manually.
+3. `lib/src/version.dart` — the `fastlaneCliVersion` constant. This is
+   what `fastlane_cli --version` prints, so it MUST move in lockstep
+   with `pubspec.yaml` and the homebrew formula. Re-exported from
+   `lib/fastlane_cli.dart`.
 
 Do **not** modify:
 
@@ -53,11 +57,13 @@ Run from the repo root:
 fvm dart pub get
 fvm dart test
 fvm dart analyze
-git diff pubspec.yaml dist/homebrew/Formula/fastlane_cli.rb
+git diff pubspec.yaml dist/homebrew/Formula/fastlane_cli.rb lib/src/version.dart
+fvm dart run bin/fastlane_cli.dart --version   # → "fastlane_cli X.Y.Z"
 ```
 
-The diff should show **only the two version lines** changed. Tests must
-remain green; analyze must remain clean.
+The diff should show **only the three version lines** changed. Tests must
+remain green; analyze must remain clean. The `--version` output must
+match the new `X.Y.Z` exactly.
 
 ## When the supervisor cuts a release
 
@@ -119,6 +125,12 @@ Diff after applying the bump (committed with the feature):
 @@
 -  version "0.1.0"
 +  version "0.2.0"
+
+--- a/lib/src/version.dart
++++ b/lib/src/version.dart
+@@
+-const String fastlaneCliVersion = '0.1.0';
++const String fastlaneCliVersion = '0.2.0';
 ```
 
 Commit message style (lockstepped with the feature commit, or a follow-up
@@ -133,8 +145,10 @@ After merge, the supervisor tags `v0.2.0` and pushes it.
 ## Do not
 
 - Bump for a pure `chore:` / `docs:` / `ci:` / `test:` PR.
-- Skip the formula update — both files must move together so the released
-  tarball metadata is internally consistent.
+- Skip the formula update — all three files (pubspec, formula, and
+  `lib/src/version.dart`) must move together so the released tarball
+  metadata, the binary's `--version` output, and the homebrew formula
+  are internally consistent.
 - Edit the formula's `url` lines or `sha256` placeholders.
 - Tag the release from a sub-agent PR; only the supervisor tags `main`
   after merge.
