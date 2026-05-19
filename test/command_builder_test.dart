@@ -6,30 +6,18 @@ import 'package:test/test.dart';
 
 import 'support/profile_factory.dart';
 
-// Deterministic BundleCache stand-in so tests do not depend on whether the
-// host shell exports `RUBY_VERSION` / `XDG_CACHE_HOME` / `HOME`.
-const _testBundleCache = BundleCache(
-  isMacOS: true,
-  isLinux: false,
-  environment: <String, String>{
-    'HOME': '/Users/test',
-    'RUBY_VERSION': '3.2.4',
-  },
-);
-const _expectedBundlePath =
-    '/Users/test/Library/Caches/fastlane_cli/bundle/ruby-3.2.4';
-
 void main() {
   group('CommandBuilder', () {
-    test('builds fastlane command with bundle gemfile env', () async {
+    test('builds fastlane lane invocation against the system fastlane gem',
+        () async {
       final temp = await Directory.systemTemp.createTemp(
         'fastlane_cli_builder',
       );
       addTearDown(() => temp.delete(recursive: true));
 
-      final gemfile = File('${temp.path}/fastlane/Gemfile')
-        ..createSync(recursive: true)
-        ..writeAsStringSync('source "https://rubygems.org"');
+      // Gemfile is no longer required for fastlane lane invocations — they
+      // go through the system / brew `fastlane` gem. The fixture only needs
+      // the runner directory and a Fastfile.
       File('${temp.path}/fastlane/Fastfile')
         ..createSync(recursive: true)
         ..writeAsStringSync('lane :noop do; end');
@@ -61,24 +49,66 @@ void main() {
         ],
       );
 
-      final builder = const CommandBuilder(
-        bundleCache: _testBundleCache,
-        environment: <String, String>{},
-      );
+      final builder = const CommandBuilder(environment: <String, String>{});
       final request = builder.build(profile: profile, action: action);
 
-      expect(request.executable, 'bundle');
+      expect(request.executable, 'fastlane');
       expect(request.arguments, <String>[
-        'exec',
-        'fastlane',
         'android',
         'version_status',
         'flavor:example',
       ]);
-      expect(request.environment['BUNDLE_GEMFILE'], gemfile.path);
-      expect(request.environment['BUNDLE_PATH'], _expectedBundlePath);
       expect(request.environment['FASTLANE_ROOT'], '${temp.path}/fastlane');
       expect(request.workingDirectory, temp.path);
+    });
+
+    test(
+        'regression — fastlane invocations do NOT carry BUNDLE_GEMFILE / BUNDLE_PATH',
+        () async {
+      // Without this guarantee the lane spawns `bundle exec fastlane` against
+      // the slim storepilot_bridge Gemfile, which exit-7s on every install.
+      // See v0.2.1 fix notes.
+      final temp = await Directory.systemTemp.createTemp(
+        'fastlane_cli_no_bundle_env',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+
+      File('${temp.path}/fastlane/Fastfile')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('lane :noop do; end');
+
+      final action = CliAction(
+        id: 'ios_release',
+        categoryId: 'ios',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'R',
+          AppLocale.en: 'R',
+        },
+        description: const <AppLocale, String>{},
+        command: const CliActionCommand(
+          type: ActionCommandType.fastlane,
+          platform: 'ios',
+          lane: 'release',
+        ),
+        preflightChecks: const <PreflightCheck>[],
+        shortcut: false,
+        requiresConfirmation: false,
+      );
+
+      final profile = createTestProfile(
+        appRootPath: temp.path,
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'ios', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final request = const CommandBuilder(environment: <String, String>{})
+          .build(profile: profile, action: action);
+
+      expect(request.executable, 'fastlane');
+      expect(request.environment.containsKey('BUNDLE_GEMFILE'), isFalse);
+      expect(request.environment.containsKey('BUNDLE_PATH'), isFalse);
     });
 
     test('builds fvm flutter command', () {
@@ -217,9 +247,7 @@ void main() {
       final temp = await Directory.systemTemp.createTemp('fastlane_cli_no_plat');
       addTearDown(() => temp.delete(recursive: true));
 
-      File(p.join(temp.path, 'fastlane', 'Gemfile'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('source "https://rubygems.org"');
+      Directory(p.join(temp.path, 'fastlane')).createSync(recursive: true);
 
       final action = CliAction(
         id: 'no_platform',
@@ -246,22 +274,18 @@ void main() {
         ],
       );
 
-      final request = const CommandBuilder(
-        bundleCache: _testBundleCache,
-        environment: <String, String>{},
-      ).build(profile: profile, action: action);
+      final request = const CommandBuilder(environment: <String, String>{})
+          .build(profile: profile, action: action);
 
-      expect(request.arguments, <String>['exec', 'fastlane', 'noop']);
-      expect(request.environment['BUNDLE_PATH'], _expectedBundlePath);
+      expect(request.executable, 'fastlane');
+      expect(request.arguments, <String>['noop']);
     });
 
     test('loads dotenv into environment for fastlane', () async {
       final temp = await Directory.systemTemp.createTemp('fastlane_cli_dotenv');
       addTearDown(() => temp.delete(recursive: true));
 
-      File(p.join(temp.path, 'fastlane', 'Gemfile'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('source "https://rubygems.org"');
+      Directory(p.join(temp.path, 'fastlane')).createSync(recursive: true);
       File(p.join(temp.path, 'fastlane', '.env')).writeAsStringSync(
         'FOO=bar\n'
         '# comment\n'
@@ -293,14 +317,12 @@ void main() {
         ],
       );
 
-      final request = const CommandBuilder(
-        bundleCache: _testBundleCache,
-        environment: <String, String>{},
-      ).build(profile: profile, action: action);
+      final request = const CommandBuilder(environment: <String, String>{})
+          .build(profile: profile, action: action);
 
       expect(request.environment['FOO'], 'bar');
       expect(request.environment['QUOTED'], 'baz');
-      expect(request.environment['BUNDLE_PATH'], _expectedBundlePath);
+      expect(request.environment.containsKey('BUNDLE_PATH'), isFalse);
     });
 
     test(
@@ -310,9 +332,7 @@ void main() {
           .createTemp('fastlane_cli_dotenv_merge');
       addTearDown(() => temp.delete(recursive: true));
 
-      File(p.join(temp.path, 'fastlane', 'Gemfile'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('source "https://rubygems.org"');
+      Directory(p.join(temp.path, 'fastlane')).createSync(recursive: true);
 
       File(p.join(temp.path, '.env')).writeAsStringSync(
         'ROOT_ONLY=root\n'
@@ -354,9 +374,8 @@ void main() {
         ],
       );
 
-      final request = CommandBuilder(
-        bundleCache: _testBundleCache,
-        environment: const <String, String>{
+      final request = const CommandBuilder(
+        environment: <String, String>{
           'FASTLANE_FLAVOR': 'dev',
           // Shell wins for OVERRIDE_ME because it's defined in some file.
           'OVERRIDE_ME': 'fromshell',

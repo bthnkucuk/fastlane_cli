@@ -95,11 +95,17 @@ The merge is implemented in `lib/src/services/profile_loader.dart`.
    builds the route graph.
 2. User picks an action (or short-circuits via `--action <id>`).
 3. `CommandBuilder._buildFastlane` materializes a `CommandRequest`:
-   - `executable: bundle`
-   - `arguments: [exec, fastlane, <platform>, <lane>, key:value, ...]`
+   - `executable: fastlane` (the system / brew-installed gem — NOT
+     `bundle exec fastlane`; the slim `fastlane/Gemfile` is reserved for
+     `storepilot_bridge.rb` and does not list fastlane itself)
+   - `arguments: [<platform>, <lane>, key:value, ...]`
    - `workingDirectory: dirname(fastlaneRunnerPath)` (this repo's root)
-   - `environment:` `BUNDLE_GEMFILE`, `FASTLANE_ROOT` (app's fastlane dir),
-     `FASTLANE_APP_ROOT` (app root), `FASTLANE_CLI_FASTLANE_PATH`.
+   - `environment:` `FASTLANE_ROOT` (app's fastlane dir),
+     `FASTLANE_APP_ROOT` (app root), `FASTLANE_CLI_FASTLANE_PATH`, plus any
+     keys auto-forwarded from the app's `.env` files.
+
+   storepilot_bridge invocations (when wired) keep the `bundle exec ruby
+   storepilot_bridge.rb …` shape — that bundle is correct for the bridge.
 4. `ProcessCommandExecutionService` spawns the process and streams logs into
    the TUI via `ansi_parsed_log_line`.
 

@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:fastlane_cli/src/model/command_request.dart';
 import 'package:fastlane_cli/src/services/command_execution_service.dart';
+import 'package:fastlane_cli/src/model/cli_profile.dart';
+import 'package:fastlane_cli/src/services/doctor_service.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -106,6 +108,70 @@ void main() {
     );
 
     test(
+      'ensureBundleReady fires for executable=bundle (storepilot_bridge path)',
+      () async {
+        final doctor = _CountingDoctor();
+        final service = ProcessCommandExecutionService(
+          useUnixPty: false,
+          doctorService: doctor,
+        );
+        final temp =
+            await Directory.systemTemp.createTemp('fastlane_cli_bundle_gate');
+        addTearDown(() => temp.delete(recursive: true));
+
+        await service.run(
+          CommandRequest(
+            executable: 'bundle',
+            arguments: const <String>['exec', 'ruby', '-e', 'puts 1'],
+            workingDirectory: temp.path,
+            environment: const <String, String>{},
+          ),
+          dryRun: false,
+          onLog: (_) {},
+        );
+
+        expect(doctor.calls, 1);
+      },
+      skip: Platform.isWindows ? 'POSIX shell only' : false,
+    );
+
+    test(
+      'ensureBundleReady does NOT fire for executable=fastlane (lane path)',
+      () async {
+        final doctor = _CountingDoctor();
+        final service = ProcessCommandExecutionService(
+          useUnixPty: false,
+          doctorService: doctor,
+        );
+        final temp =
+            await Directory.systemTemp.createTemp('fastlane_cli_fastlane_gate');
+        addTearDown(() => temp.delete(recursive: true));
+
+        // Spawn will fail (no real `fastlane` on the spawn path here) — we
+        // only care that the gate didn't fire ensureBundleReady. We point at
+        // a known-good binary (`/usr/bin/true`) under the `fastlane` name via
+        // a wrapper executable to keep the test self-contained.
+        final wrapper = File('${temp.path}/fastlane')
+          ..writeAsStringSync('#!/bin/sh\nexit 0\n');
+        await Process.run('chmod', <String>['+x', wrapper.path]);
+
+        await service.run(
+          CommandRequest(
+            executable: wrapper.path,
+            arguments: const <String>['noop'],
+            workingDirectory: temp.path,
+            environment: const <String, String>{},
+          ),
+          dryRun: false,
+          onLog: (_) {},
+        );
+
+        expect(doctor.calls, 0);
+      },
+      skip: Platform.isWindows ? 'POSIX shell only' : false,
+    );
+
+    test(
       'deregisters child from ProcessSupervisor on natural exit',
       () async {
         await ProcessSupervisor.instance.resetForTesting();
@@ -133,4 +199,20 @@ void main() {
       skip: Platform.isWindows ? 'POSIX shell only' : false,
     );
   });
+}
+
+/// Counts invocations of [DoctorService.ensureBundleReady] so the gate test
+/// can assert "fired" vs "did not fire" without depending on real bundle
+/// install side effects.
+class _CountingDoctor implements DoctorService {
+  int calls = 0;
+
+  @override
+  Future<void> ensureBundleReady({StringSink? noticeSink}) async {
+    calls++;
+  }
+
+  @override
+  Future<DoctorReport> runFull({CliProfile? profile}) async =>
+      DoctorReport(entries: const <DoctorEntry>[]);
 }

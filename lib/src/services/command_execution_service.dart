@@ -323,11 +323,14 @@ class ProcessCommandExecutionService implements CommandExecutionService {
       return const CommandExecutionResult(exitCode: 0, wasDryRun: true);
     }
 
-    // Bootstrap the per-user bundle cache the first time a `bundle exec
-    // fastlane …` lane runs in this process. Subsequent calls are a no-op
-    // (DoctorService memoizes the result), so this is safe to call on every
-    // invocation. We stream notice/install output through stderr so the user
-    // sees progress rather than a silent hang.
+    // Bootstrap the per-user bundle cache the first time a `bundle exec …`
+    // process (currently used only by storepilot_bridge.rb) runs in this
+    // process. Fastlane lanes do NOT go through `bundle` anymore — they
+    // invoke the system / brew-installed `fastlane` gem directly (see
+    // CommandBuilder._buildFastlane and CLAUDE.md §4). Subsequent calls are
+    // a no-op (DoctorService memoizes the result), so this is safe to call
+    // on every invocation. We stream notice/install output through stderr
+    // so the user sees progress rather than a silent hang.
     if (request.executable == 'bundle') {
       try {
         await _doctorService.ensureBundleReady(
@@ -346,13 +349,6 @@ class ProcessCommandExecutionService implements CommandExecutionService {
     onLog(
       CommandLogEvent(
         message: '[exec] cwd=${request.workingDirectory}',
-        isError: false,
-      ),
-    );
-    onLog(
-      CommandLogEvent(
-        message:
-            '[exec] BUNDLE_GEMFILE=${request.environment['BUNDLE_GEMFILE'] ?? '(unset)'}',
         isError: false,
       ),
     );
