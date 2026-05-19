@@ -35,3 +35,4 @@ export 'src/services/preflight_validator.dart';
 export 'src/services/process_runner.dart';
 export 'src/services/runner_resolver.dart';
 export 'src/services/skills_installer.dart';
+export 'src/version.dart' show fastlaneCliVersion;
