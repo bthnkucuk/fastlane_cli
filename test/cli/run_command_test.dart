@@ -18,10 +18,8 @@ void main() {
       // Profile file just needs to exist so the resolver succeeds.
       File(p.join(tempDir.path, 'cli_profile.yaml'))
           .writeAsStringSync('app:');
-      // Builder needs an existing Gemfile when type=fastlane.
-      File(p.join(tempDir.path, 'fastlane', 'Gemfile'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('source "https://rubygems.org"');
+      // Builder requires the fastlane runner directory to exist.
+      Directory(p.join(tempDir.path, 'fastlane')).createSync(recursive: true);
     });
 
     tearDown(() async {
@@ -64,7 +62,7 @@ void main() {
       final command = RunCommand(
         profileLoader: _StaticLoader(profile),
         profileResolver: ProfileResolver(workingDirectory: tempDir),
-        commandBuilder: const CommandBuilder(bundleCache: _kBundle),
+        commandBuilder: const CommandBuilder(),
         executionService: executor,
         stdoutSink: out,
         stderrSink: err,
@@ -83,11 +81,8 @@ void main() {
       expect(result.exit, 0);
       expect(result.executor.invocations, hasLength(1));
       final request = result.executor.invocations.single.request;
-      expect(request.executable, 'bundle');
-      expect(
-        request.arguments,
-        <String>['exec', 'fastlane', 'android', 'version_status'],
-      );
+      expect(request.executable, 'fastlane');
+      expect(request.arguments, <String>['android', 'version_status']);
     });
 
     test('propagates the lane exit code', () async {
@@ -186,11 +181,3 @@ class _Invocation {
   final bool dryRun;
 }
 
-const _kBundle = BundleCache(
-  isMacOS: true,
-  isLinux: false,
-  environment: <String, String>{
-    'HOME': '/Users/test',
-    'RUBY_VERSION': '3.2.4',
-  },
-);

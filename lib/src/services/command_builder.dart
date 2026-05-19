@@ -5,21 +5,14 @@ import 'package:path/path.dart' as p;
 import '../model/cli_action.dart';
 import '../model/cli_profile.dart';
 import '../model/command_request.dart';
-import 'bundle_cache.dart';
 import 'env_file_loader.dart';
 
 class CommandBuilder {
   const CommandBuilder({
-    BundleCache? bundleCache,
     Map<String, String>? environment,
-  }) : _bundleCache = bundleCache,
-       _environmentOverride = environment;
+  }) : _environmentOverride = environment;
 
-  final BundleCache? _bundleCache;
   final Map<String, String>? _environmentOverride;
-
-  BundleCache get _resolvedBundleCache =>
-      _bundleCache ?? BundleCache.fromPlatform();
 
   Map<String, String> get _environment =>
       _environmentOverride ?? Platform.environment;
@@ -55,13 +48,14 @@ class CommandBuilder {
       throw FormatException('Fastlane action "${action.id}" requires lane.');
     }
 
+    // Lanes run against the SYSTEM / brew-installed `fastlane` gem — NOT the
+    // slim bundle that lives next to `fastlane/Gemfile`. That bundle exists
+    // only for `storepilot_bridge.rb` (see `fastlane/Gemfile` header). Wrapping
+    // lane invocations in `bundle exec fastlane …` against that slim Gemfile
+    // restricts the gem path so fastlane's own transitive deps go missing,
+    // which surfaces as the exit-7 "Could not find …" error users hit before
+    // v0.2.1. See CLAUDE.md §4 for the contract.
     final runnerFastlaneDirectory = profile.fastlaneRunnerDirectoryPath;
-    final gemfilePath = p.normalize(p.join(runnerFastlaneDirectory, 'Gemfile'));
-    if (!File(gemfilePath).existsSync()) {
-      throw FormatException(
-        'Gemfile not found for action "${action.id}": $gemfilePath',
-      );
-    }
     final runnerWorkingDirectory = p.normalize(
       p.dirname(runnerFastlaneDirectory),
     );
@@ -71,7 +65,7 @@ class CommandBuilder {
       );
     }
 
-    final args = <String>['exec', 'fastlane'];
+    final args = <String>[];
     final platform = command.platform;
     if (platform != null && platform.isNotEmpty) {
       args.add(platform);
@@ -85,16 +79,13 @@ class CommandBuilder {
       fastlaneDirectoryPath: profile.fastlaneDirectoryPath,
       appRootPath: profile.appRootPath,
     );
-    final bundlePath = _resolvedBundleCache.resolvePath();
 
     return CommandRequest(
-      executable: 'bundle',
+      executable: 'fastlane',
       arguments: args,
       workingDirectory: runnerWorkingDirectory,
       environment: <String, String>{
         ...dotenvValues,
-        'BUNDLE_GEMFILE': gemfilePath,
-        'BUNDLE_PATH': bundlePath,
         'FASTLANE_ROOT': profile.fastlaneDirectoryPath,
         'FASTLANE_APP_ROOT': profile.appRootPath,
         'FASTLANE_CLI_FASTLANE_PATH': runnerFastlaneDirectory,

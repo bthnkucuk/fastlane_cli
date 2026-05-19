@@ -461,6 +461,9 @@ class _FixedBundleCache implements BundleCache {
 
   @override
   String rubyAbi() => 'ruby-3.2.0';
+
+  @override
+  Future<String?> primeRubyVersion() async => '3.2.0';
 }
 
 class _StaticRunnerResolver implements RunnerResolver {
