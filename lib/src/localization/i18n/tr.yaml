@@ -40,6 +40,27 @@ guideFallback: Bu konu için kılavuz yok.
 dryRunLabel: Dry-run (simülasyon)
 localeLabel: Dil
 
+prompt:
+  twoFactorTitle: İki faktörlü doğrulama kodu
+  twoFactorBody(digits): "${digits} haneli kodu giriniz"
+  twoFactorHint(digits): "${digits} haneli kod"
+  yesNoTitle: Onay
+  yesNoBody: Lane evet/hayır yanıtı bekliyor.
+  trustComputerTitle: Bu bilgisayara güveniliyor mu?
+  trustComputerBody: Apple, bu bilgisayara App Store Connect için güvenip güvenmediğini soruyor.
+  chooseIndexTitle: Bir seçenek seçin
+  chooseIndexBody(lo, hi): "${lo} ile ${hi} arasında bir sayı seçin"
+  freeFormTitle: Lane giriş bekliyor
+  submit: Gönder
+  cancel: İptal
+  yes: Evet
+  no: Hayır
+  errorWrongLength(n): "${n} haneli olmalı"
+  errorOnlyDigits: Yalnızca rakam
+  errorYesOrNo: "y/n giriniz"
+  errorOutOfRange(lo, hi): "${lo}-${hi} arası olmalı"
+  errorRequired: Zorunlu
+
 status:
   idle: Bekleniyor
   validating: Doğrulanıyor

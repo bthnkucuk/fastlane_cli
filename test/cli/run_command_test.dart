@@ -168,6 +168,7 @@ class _FakeExecutor implements CommandExecutionService {
     CommandRequest request, {
     required bool dryRun,
     required void Function(CommandLogEvent event) onLog,
+    void Function(RunningProcess process)? onProcess,
   }) async {
     invocations.add(_Invocation(request: request, dryRun: dryRun));
     onLog(const CommandLogEvent(message: 'fake stdout', isError: false));

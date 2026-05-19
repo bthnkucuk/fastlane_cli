@@ -79,9 +79,38 @@ class TranslationsEn extends Translations with BaseTranslations<AppLocale, Trans
 	@override String get guideFallback => 'No guide for this topic.';
 	@override String get dryRunLabel => 'Dry-run';
 	@override String get localeLabel => 'Language';
+	@override late final _TranslationsPromptEn prompt = _TranslationsPromptEn._(_root);
 	@override late final _TranslationsStatusEn status = _TranslationsStatusEn._(_root);
 	@override late final _TranslationsPaletteEn palette = _TranslationsPaletteEn._(_root);
 	@override late final _TranslationsGuidesEn guides = _TranslationsGuidesEn._(_root);
+}
+
+// Path: prompt
+class _TranslationsPromptEn extends TranslationsPromptTr {
+	_TranslationsPromptEn._(TranslationsEn root) : this._root = root, super.internal(root);
+
+	final TranslationsEn _root; // ignore: unused_field
+
+	// Translations
+	@override String get twoFactorTitle => 'Two-factor authentication code';
+	@override String twoFactorBody({required Object digits}) => 'Enter the ${digits}-digit code';
+	@override String twoFactorHint({required Object digits}) => '${digits}-digit code';
+	@override String get yesNoTitle => 'Confirmation';
+	@override String get yesNoBody => 'The lane is waiting for a yes/no answer.';
+	@override String get trustComputerTitle => 'Trust this computer?';
+	@override String get trustComputerBody => 'Apple is asking whether to trust this computer for App Store Connect.';
+	@override String get chooseIndexTitle => 'Pick an option';
+	@override String chooseIndexBody({required Object lo, required Object hi}) => 'Pick a number between ${lo} and ${hi}';
+	@override String get freeFormTitle => 'The lane is waiting for input';
+	@override String get submit => 'Submit';
+	@override String get cancel => 'Cancel';
+	@override String get yes => 'Yes';
+	@override String get no => 'No';
+	@override String errorWrongLength({required Object n}) => 'Must be ${n} digits';
+	@override String get errorOnlyDigits => 'Digits only';
+	@override String get errorYesOrNo => 'Type y or n';
+	@override String errorOutOfRange({required Object lo, required Object hi}) => 'Must be ${lo}-${hi}';
+	@override String get errorRequired => 'Required';
 }
 
 // Path: status
@@ -224,6 +253,25 @@ extension on TranslationsEn {
 			'guideFallback' => 'No guide for this topic.',
 			'dryRunLabel' => 'Dry-run',
 			'localeLabel' => 'Language',
+			'prompt.twoFactorTitle' => 'Two-factor authentication code',
+			'prompt.twoFactorBody' => ({required Object digits}) => 'Enter the ${digits}-digit code',
+			'prompt.twoFactorHint' => ({required Object digits}) => '${digits}-digit code',
+			'prompt.yesNoTitle' => 'Confirmation',
+			'prompt.yesNoBody' => 'The lane is waiting for a yes/no answer.',
+			'prompt.trustComputerTitle' => 'Trust this computer?',
+			'prompt.trustComputerBody' => 'Apple is asking whether to trust this computer for App Store Connect.',
+			'prompt.chooseIndexTitle' => 'Pick an option',
+			'prompt.chooseIndexBody' => ({required Object lo, required Object hi}) => 'Pick a number between ${lo} and ${hi}',
+			'prompt.freeFormTitle' => 'The lane is waiting for input',
+			'prompt.submit' => 'Submit',
+			'prompt.cancel' => 'Cancel',
+			'prompt.yes' => 'Yes',
+			'prompt.no' => 'No',
+			'prompt.errorWrongLength' => ({required Object n}) => 'Must be ${n} digits',
+			'prompt.errorOnlyDigits' => 'Digits only',
+			'prompt.errorYesOrNo' => 'Type y or n',
+			'prompt.errorOutOfRange' => ({required Object lo, required Object hi}) => 'Must be ${lo}-${hi}',
+			'prompt.errorRequired' => 'Required',
 			'status.idle' => 'Idle',
 			'status.validating' => 'Validating',
 			'status.blocked' => 'Blocked',

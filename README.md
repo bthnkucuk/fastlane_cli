@@ -241,6 +241,37 @@ no positional argument and no recognized subcommand, the binary delegates to
 fastlane_cli --profile /abs/path/to/cli_profile.yaml --lang en
 ```
 
+#### Interactive prompts
+
+When a fastlane lane needs interactive input — Apple's 6-digit two-factor
+code, "trust this computer", `(y/n)` confirms, multi-account pickers — the
+TUI pops a modal dialog the moment the child writes the prompt to stdout.
+Your answer is forwarded to the child's stdin and the lane continues
+exactly as if you'd typed at a bare terminal.
+
+```
+┌─ Two-factor authentication code ─────────────────────────────┐
+│ Enter the 6-digit code                                        │
+│ 6-digit code                                                  │
+│                                                               │
+│ ┌───────────────────────────────────────────────────────────┐ │
+│ │ 123456                                                    │ │
+│ └───────────────────────────────────────────────────────────┘ │
+│                                                               │
+│ Enter: Submit · Esc: Cancel                                   │
+└───────────────────────────────────────────────────────────────┘
+```
+
+Esc dismisses the dialog AND sends SIGINT to the lane (treating an
+abandoned prompt as "stop this run"). The detection is conservative — only
+known prompt shapes pop the modal; ordinary log lines are never
+misinterpreted.
+
+Tip: configuring `APP_STORE_CONNECT_API_KEY_JSON_PATH` (or the
+`APP_STORE_CONNECT_API_KEY_*` triple) bypasses Apple's 2FA path entirely;
+the modal is a fallback for accounts that still rely on session-based
+auth.
+
 ### `fastlane_cli run <action-id>`
 
 ```

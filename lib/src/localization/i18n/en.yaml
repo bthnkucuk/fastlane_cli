@@ -40,6 +40,27 @@ guideFallback: No guide for this topic.
 dryRunLabel: Dry-run
 localeLabel: Language
 
+prompt:
+  twoFactorTitle: Two-factor authentication code
+  twoFactorBody(digits): "Enter the ${digits}-digit code"
+  twoFactorHint(digits): "${digits}-digit code"
+  yesNoTitle: Confirmation
+  yesNoBody: The lane is waiting for a yes/no answer.
+  trustComputerTitle: Trust this computer?
+  trustComputerBody: Apple is asking whether to trust this computer for App Store Connect.
+  chooseIndexTitle: Pick an option
+  chooseIndexBody(lo, hi): "Pick a number between ${lo} and ${hi}"
+  freeFormTitle: The lane is waiting for input
+  submit: Submit
+  cancel: Cancel
+  yes: Yes
+  no: No
+  errorWrongLength(n): "Must be ${n} digits"
+  errorOnlyDigits: Digits only
+  errorYesOrNo: "Type y or n"
+  errorOutOfRange(lo, hi): "Must be ${lo}-${hi}"
+  errorRequired: Required
+
 status:
   idle: Idle
   validating: Validating
