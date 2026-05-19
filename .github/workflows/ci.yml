@@ -95,12 +95,23 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # `main` is branch-protected with 4 required status checks, so the bot
+    # cannot push the badge commit directly (GH006). Open / update a PR
+    # instead — it auto-runs CI on the PR branch and is mergeable once
+    # `Analyze + Test` + the 3 Ruby legs are green.
     permissions:
       contents: write
+      pull-requests: write
+    # Serialize coverage runs so two near-simultaneous main pushes don't both
+    # try to open/update the badge PR at once. cancel-in-progress=false ensures
+    # the second run waits rather than discarding work.
+    concurrency:
+      group: coverage-badge
+      cancel-in-progress: false
     env:
       # Declared at job level so linters can resolve ${{ env.COVERAGE_PERCENT }}
-      # in the commit step. The actual value is written into GITHUB_ENV by the
-      # "Update coverage badge" step.
+      # in the badge-PR step. The actual value is written into GITHUB_ENV by
+      # the "Update coverage badge" step.
       COVERAGE_PERCENT: ""
     steps:
       - name: Checkout
@@ -140,10 +151,19 @@ jobs:
 
           echo "COVERAGE_PERCENT=$percent" >> $GITHUB_ENV
 
-      - name: Commit coverage badge
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git diff --staged --quiet || git commit -m "chore: update coverage badge to ${{ env.COVERAGE_PERCENT }}%"
-          git push
+      - name: Open / update coverage badge PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: update coverage badge to ${{ env.COVERAGE_PERCENT }}%"
+          branch: chore/coverage-badge
+          delete-branch: true
+          title: "chore: bump coverage badge to ${{ env.COVERAGE_PERCENT }}%"
+          body: |
+            Auto-generated coverage badge update.
+
+            Source run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Coverage: ${{ env.COVERAGE_PERCENT }}%
+          base: main
+          labels: ci, coverage
+          author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          committer: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
