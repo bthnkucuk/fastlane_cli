@@ -1,20 +1,27 @@
 # frozen_string_literal: true
 
-# Regression guard for v0.3.2 (fix: drop `bundle exec` from sub-lane
-# delegation). The Dart-side CommandBuilder was fixed in v0.2.1 to invoke
-# `fastlane` directly without `bundle exec`, but the Fastfile itself still
-# fanned out to platform sub-lanes through `sh("cd … && bundle exec fastlane
-# <platform> <lane>")`, which failed at runtime with
+# Regression guard for cross-platform lane delegation inside the Fastfile(s).
 #
-#     Could not locate Gemfile
+# Two distinct historical failure modes are covered:
 #
-# under brew installs (the `share/fastlane_cli/` cwd has no Gemfile and is not
-# meant to). The brew formula declares `depends_on "fastlane"`, so plain
-# `fastlane …` works against the system gem.
+# 1) v0.3.2 — `bundle exec fastlane <platform> <lane>` inside `sh(...)`.
+#    Failed under brew installs (`Could not locate Gemfile` at
+#    `share/fastlane_cli/`). The brew formula declares
+#    `depends_on "fastlane"` so plain `fastlane` works against the system
+#    gem. Dropping `bundle exec` from the Fastfile sub-lane fan-out fixed
+#    this. (`bundle exec ruby storepilot_bridge.rb` is a different code
+#    path and stays.)
 #
-# This spec scans the in-repo Fastfile(s) for any remaining `bundle exec
-# fastlane` invocation. `bundle exec ruby storepilot_bridge.rb` (and similar
-# bundle-protected helper script invocations) ARE legitimate and stay.
+# 2) v0.4.1 — `sh("cd … && fastlane <ios|android> <lane>")`. Even without
+#    `bundle exec`, the `sh(...)` indirection spawns a *second* fastlane
+#    process via the shell. v0.4.0's interactive prompt forwarding (PTY
+#    stdin routing) only reaches the outer process, so when the inner
+#    child prompts for App Store Connect 2FA the typed code goes to the
+#    outer process and the inner one waits forever. The v0.4.1 fix
+#    invokes platform lanes in-process via
+#    `FastlaneCliConfig.run_subline(:platform, :lane, options)`. This
+#    spec bans the `sh(...fastlane (ios|android) …)` shape in any shape
+#    going forward.
 RSpec.describe "Fastfile sub-lane delegation" do
   FASTFILE_DIR = File.expand_path("..", __dir__)
   FASTFILES = [
@@ -23,17 +30,25 @@ RSpec.describe "Fastfile sub-lane delegation" do
     File.join(FASTFILE_DIR, "android", "Fastfile")
   ].freeze
 
+  # Lines that look like *documentation* of the old pattern (rationale
+  # comments referencing the banned shape) are allowed. The check is
+  # therefore "non-comment lines only" — we strip leading whitespace and
+  # skip any line starting with `#`. Heredocs that happen to embed the
+  # banned token are not used in these Fastfiles, so this is sufficient.
+  def self.non_comment_lines(content)
+    content.lines.each_with_index.reject do |line, _idx|
+      line.lstrip.start_with?("#")
+    end
+  end
+
   FASTFILES.each do |path|
     next unless File.exist?(path)
 
-    it "does not use `bundle exec fastlane` in #{path.sub("#{FASTFILE_DIR}/", '')}" do
+    relative = path.sub("#{FASTFILE_DIR}/", "")
+
+    it "does not use `bundle exec fastlane` in #{relative}" do
       content = File.read(path)
-      # We're looking for `bundle exec fastlane` literally — that's the
-      # combination that broke under brew installs (no Gemfile at cwd, system
-      # `fastlane` is on PATH already via `depends_on "fastlane"`).
-      # `bundle exec ruby storepilot_bridge.rb` and similar non-fastlane
-      # invocations are NOT matched and are intentionally allowed.
-      offenders = content.lines.each_with_index.select do |line, _|
+      offenders = self.class.non_comment_lines(content).select do |line, _|
         line.include?("bundle exec fastlane")
       end
 
@@ -41,6 +56,30 @@ RSpec.describe "Fastfile sub-lane delegation" do
         formatted = offenders.map { |line, idx| "  #{path}:#{idx + 1}: #{line.strip}" }.join("\n")
         "Found `bundle exec fastlane` invocation(s) — drop the `bundle exec` " \
           "prefix; lanes run against the system / brew fastlane gem:\n#{formatted}"
+      }
+    end
+
+    it "does not shell-out to platform lanes via `sh(... fastlane ios|android ...)` in #{relative}" do
+      content = File.read(path)
+      # Matches `sh(` (any whitespace) followed by a string literal that
+      # contains `fastlane ios` or `fastlane android` somewhere inside it,
+      # regardless of `cd <runner> &&` prefix, quoting style, or
+      # interpolation. We intentionally do NOT match `fastlane deliver` —
+      # that's the standalone `deliver` gem CLI, a one-shot action that
+      # does not interact with stdin in our flow.
+      ban_regex = /sh\s*\(\s*[^)]*?fastlane\s+(?:ios|android)\b/
+
+      offenders = self.class.non_comment_lines(content).select do |line, _|
+        line =~ ban_regex
+      end
+
+      expect(offenders).to be_empty, lambda {
+        formatted = offenders.map { |line, idx| "  #{path}:#{idx + 1}: #{line.strip}" }.join("\n")
+        "Found `sh(... fastlane (ios|android) ...)` shell-outs — these spawn " \
+          "a second fastlane process whose stdin is NOT wired to the outer " \
+          "PTY, breaking interactive prompt forwarding (2FA hangs forever). " \
+          "Use `FastlaneCliConfig.run_subline(:platform, :lane, options)` " \
+          "instead so the sub-lane runs in-process.\n#{formatted}"
       }
     end
   end
