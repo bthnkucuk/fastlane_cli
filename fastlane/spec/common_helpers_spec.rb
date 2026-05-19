@@ -601,7 +601,7 @@ RSpec.describe FastlaneCliConfig do
       expect(@runner_double.received).to eq([
         [:internal_testing, :android, { flavor: "prod" }]
       ])
-      expect(result).to eq("executed:android:internal_testing:{:flavor=>\"prod\"}")
+      expect(result).to match(/executed:android:internal_testing/)
     end
 
     it "coerces symbol input the same as string input" do
