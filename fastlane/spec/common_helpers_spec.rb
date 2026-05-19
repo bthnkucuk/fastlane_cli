@@ -571,58 +571,73 @@ RSpec.describe FastlaneCliConfig do
   end
 
   describe ".run_subline" do
-    # `run_subline` is the v0.4.1 helper that replaces the v0.3.2
-    # `sh("cd #{runner} && fastlane <platform> <lane>")` pattern with an
-    # in-process call. The spec layer does not load the real fastlane gem
-    # (it's enormous and would make the suite slow), so we stand up a
-    # minimal `Fastlane::FastFile.runner.execute` double and assert that
-    # the helper forwards (lane, platform, options) onto it with the
-    # correct symbol coercion.
-    before(:each) do
-      stub_const("Fastlane", Module.new)
-
+    # `run_subline` is the cross-platform sub-lane invoker that replaced
+    # the v0.3.2 `sh("cd #{runner} && fastlane <platform> <lane>")`
+    # pattern with an in-process call.
+    #
+    # v0.4.1 wrongly called `Fastlane::FastFile.runner.execute(...)` —
+    # `runner` is an `attr_accessor` (instance method) on FastFile, not a
+    # class method, so every invocation crashed with
+    # `undefined method 'runner' for class Fastlane::FastFile`. v0.4.2
+    # changes the signature to take the FastFile *instance* explicitly
+    # (call sites pass `self` from inside the lane block, where `self` IS
+    # the FastFile instance). The spec asserts the new signature.
+    let(:received) { [] }
+    let(:fastfile_double) do
+      received_log = received
       runner_double = Object.new
-      received = []
       runner_double.define_singleton_method(:execute) do |lane, platform, params|
-        received << [lane, platform, params]
+        received_log << [lane, platform, params]
         "executed:#{platform}:#{lane}:#{params.inspect}"
       end
-      runner_double.define_singleton_method(:received) { received }
 
-      fast_file = Class.new
-      fast_file.define_singleton_method(:runner) { runner_double }
-      Fastlane.const_set(:FastFile, fast_file)
-
-      @runner_double = runner_double
+      ff = Object.new
+      ff.define_singleton_method(:runner) { runner_double }
+      ff
     end
 
-    it "forwards lane and platform onto Fastlane::FastFile.runner.execute as symbols" do
-      result = described_class.run_subline("android", "internal_testing", flavor: "prod")
-      expect(@runner_double.received).to eq([
+    it "forwards lane and platform onto fastfile.runner.execute as symbols" do
+      result = described_class.run_subline(fastfile_double, "android", "internal_testing", flavor: "prod")
+      expect(received).to eq([
         [:internal_testing, :android, { flavor: "prod" }]
       ])
       expect(result).to match(/executed:android:internal_testing/)
     end
 
     it "coerces symbol input the same as string input" do
-      described_class.run_subline(:ios, :test_flight, {})
-      expect(@runner_double.received).to eq([
+      described_class.run_subline(fastfile_double, :ios, :test_flight, {})
+      expect(received).to eq([
         [:test_flight, :ios, {}]
       ])
     end
 
     it "defaults options to an empty hash" do
-      described_class.run_subline(:ios, :get_ios_version_data)
-      expect(@runner_double.received.first).to eq([:get_ios_version_data, :ios, {}])
+      described_class.run_subline(fastfile_double, :ios, :get_ios_version_data)
+      expect(received.first).to eq([:get_ios_version_data, :ios, {}])
     end
 
     it "propagates exceptions raised by the runner so callers can rescue/fallback" do
-      @runner_double.define_singleton_method(:execute) do |*_args|
+      crashing_fastfile = Object.new
+      crashing_runner = Object.new
+      crashing_runner.define_singleton_method(:execute) do |*_args|
         raise StandardError, "lane blew up"
       end
+      crashing_fastfile.define_singleton_method(:runner) { crashing_runner }
 
-      expect { described_class.run_subline(:ios, :test_flight) }
+      expect { described_class.run_subline(crashing_fastfile, :ios, :test_flight) }
         .to raise_error(StandardError, "lane blew up")
+    end
+
+    it "rejects callers that forget to pass the FastFile instance (v0.4.1 regression guard)" do
+      # The old v0.4.1 signature was `run_subline(platform, lane, options)`.
+      # Calling it that way against the v0.4.2 helper should produce an
+      # ArgumentError (wrong number of arguments) or a NoMethodError on
+      # `.runner` for the platform symbol — either way it must NOT
+      # silently no-op, which is what would happen if we forgot to update
+      # a call site.
+      expect {
+        described_class.run_subline(:android, :internal_testing, {})
+      }.to raise_error(StandardError)
     end
   end
 end

@@ -258,9 +258,9 @@ module FastlaneCliConfig
   # prompts (e.g. App Store Connect 2FA), the user's typed response goes to
   # the outer process and the child waits forever.
   #
-  # `Fastlane::FastFile.runner.execute` invokes the lane in the SAME Ruby
-  # process. Stdin, lane_context, SharedValues, fastlane env, and the
-  # current TTY are all shared, so:
+  # `fastfile.runner.execute` invokes the lane in the SAME Ruby process.
+  # Stdin, lane_context, SharedValues, fastlane env, and the current TTY
+  # are all shared, so:
   #   - Interactive prompts (2FA, yes/no) appear to the outer PTY directly.
   #   - The lane's return value is returned to the caller (no need to
   #     parse stdout for `[VERSION_DATA]` markers, though existing parsing
@@ -268,12 +268,21 @@ module FastlaneCliConfig
   #   - Errors propagate as Ruby exceptions, which call sites rescue and
   #     translate into the same "fallback unknown|0" log line as before.
   #
+  # The first argument is the FastFile instance running the outer lane —
+  # pass `self` from any `lane :foo do ... end` block. `runner` is an
+  # *instance* accessor on `Fastlane::FastFile` (see fastlane source
+  # `fastlane/lib/fastlane/fast_file.rb` `attr_accessor :runner`), so
+  # there is no class-level `Fastlane::FastFile.runner` — v0.4.1 called
+  # that and crashed every sub-lane invocation with
+  # `undefined method 'runner' for class Fastlane::FastFile`. v0.4.2
+  # fixes that by taking the FastFile instance explicitly.
+  #
   # Requires the platform Fastfiles to be `import`-ed into the same
   # FastFile context. Top-level `fastlane/Fastfile` already does this:
   #   import File.expand_path("android/Fastfile", __dir__)
   #   import File.expand_path("ios/Fastfile",     __dir__)
-  def run_subline(platform, lane, options = {})
-    Fastlane::FastFile.runner.execute(lane.to_sym, platform.to_sym, options)
+  def run_subline(fastfile, platform, lane, options = {})
+    fastfile.runner.execute(lane.to_sym, platform.to_sym, options)
   end
 
   def app_root_prefixed_option_tokens(options = {}, allowed_keys: nil, path_keys: [])
