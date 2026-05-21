@@ -9,7 +9,7 @@ Flutter apps consumed by this CLI often have multiple entry points
 (`lib/main_narravo.dart`, `lib/main_tuspeech.dart`, …) and multiple flavors.
 The fastlane lanes here resolve both via a single helper —
 `FastlaneCliConfig.flutter_target` in
-[fastlane/common_helpers.rb](fastlane/common_helpers.rb) — and an accompanying
+[fastlane/common_helpers.rb](../../fastlane/common_helpers.rb) — and an accompanying
 `FastlaneCliConfig.resolve_flavor`. Anything that builds the app
 (`flutter build apk|appbundle|ipa`) MUST go through these helpers so the user
 has consistent overrides across every lane.
@@ -71,13 +71,13 @@ Recommend in this order, falling back if a prerequisite is missing:
 4. **Per-invocation option** — one-off override.
 
 Reach for `dependency_overrides`-style hacks (hardcoding into the Fastfile)
-NEVER — see §"No app-specific values" in [CLAUDE.md](CLAUDE.md).
+NEVER — see §"No app-specific values" in [CLAUDE.md](../../CLAUDE.md).
 
 ## Writing a new lane that builds the app
 
 Every lane that shells out to `flutter build …` MUST go through both helpers
 and only append the flags when non-blank. Reference pattern in
-[fastlane/Fastfile](fastlane/Fastfile):
+[fastlane/Fastfile](../../fastlane/Fastfile):
 
 ```ruby
 target = FastlaneCliConfig.flutter_target(options)
@@ -114,9 +114,9 @@ to the default.
 
 ## Reference
 
-- Helper: [common_helpers.rb:191-204](fastlane/common_helpers.rb#L191-L204) (`flutter_target`),
-  [common_helpers.rb:110-118](fastlane/common_helpers.rb#L110-L118) (`resolve_flavor`).
-- Lane example (iOS build via `--target`): [fastlane/Fastfile:217-227](fastlane/Fastfile#L217-L227).
-- Lane example (Android appbundle): [fastlane/android/Fastfile:150-154](fastlane/android/Fastfile#L150-L154).
+- Helper: [common_helpers.rb:191-204](../../fastlane/common_helpers.rb#L191-L204) (`flutter_target`),
+  [common_helpers.rb:110-118](../../fastlane/common_helpers.rb#L110-L118) (`resolve_flavor`).
+- Lane example (iOS build via `--target`): [fastlane/Fastfile:228-238](../../fastlane/Fastfile#L228-L238).
+- Lane example (Android appbundle): [fastlane/android/Fastfile:150-154](../../fastlane/android/Fastfile#L150-L154).
 - Related skill: [[fastlane-summary-log]] — exposes resolved values to the user.
-- Repo rules: [CLAUDE.md](CLAUDE.md) §5.2 (no app-specific values), §5.3 (env-driven config).
+- Repo rules: [CLAUDE.md](../../CLAUDE.md) §5.2 (no app-specific values), §5.3 (env-driven config).

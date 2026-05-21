@@ -130,7 +130,7 @@ then, callers pass an absolute path.
 Every user-facing lane and every storepilot_bridge command MUST end with a
 coloured summary box via `FastlaneCliConfig.print_summary_box` /
 `FastlaneCliConfig.summary_box`. Full procedure:
-[.claude/skills/fastlane-summary-log/SKILL.md](.claude/skills/fastlane-summary-log/SKILL.md).
+[skills/fastlane-summary-log/SKILL.md](skills/fastlane-summary-log/SKILL.md).
 Cursor rule: [.cursor/rules/fastlane-logging.mdc](.cursor/rules/fastlane-logging.mdc).
 
 ### 5.2 No app-specific values

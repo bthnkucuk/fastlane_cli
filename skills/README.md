@@ -9,6 +9,10 @@ A future `fastlane_cli skills install` subcommand (Track C3 of the roadmap)
 will copy this tree into the consumer's local Claude config. Until then,
 this directory is the canonical source.
 
+The repo's `.claude/skills` is a symlink to this directory so the same
+tree auto-loads when Claude Code runs inside the fastlane_cli repo
+itself — single source of truth, no duplication.
+
 ## Index
 
 | Skill                                                                  | One-liner                                                                                              |
@@ -23,6 +27,7 @@ this directory is the canonical source.
 | [`fastlane-doctor`](fastlane-doctor/SKILL.md)                          | Diagnose env / credential / toolchain issues before invoking a lane.                                    |
 | [`fastlane-crashlytics-symbols`](fastlane-crashlytics-symbols/SKILL.md) | Upload iOS dSYMs to Firebase Crashlytics (opt-in TestFlight flag + standalone lane); document Android gap.|
 | [`fastlane-cli-layout`](fastlane-cli-layout/SKILL.md)                  | Non-standard fastlane folder / profile locations — `root_path`, `fastlane_path`, profile discovery.     |
+| [`fastlane-target-flavor`](fastlane-target-flavor/SKILL.md)            | Resolve Flutter `--target lib/main_*.dart` and `--flavor` for build lanes (option → env → flavor convention). |
 | [`fastlane-summary-log`](fastlane-summary-log/SKILL.md)                | Author the mandatory coloured summary box at the end of every user-facing lane / bridge command.        |
 
 ## Authoring rules
