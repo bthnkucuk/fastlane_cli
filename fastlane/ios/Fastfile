@@ -89,9 +89,15 @@ platform :ios do
     app_identifier = ios_app_identifier(options)
     ipa_name = options[:ipa_name] || ENV["IOS_IPA_NAME"] || "Runner.ipa"
 
-    sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} clean", options))
-    sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options))
-    sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} build ios --release --no-codesign", options))
+    # `flutter clean` / `pub get` / `build ios` all shell to `pod` on
+    # iOS-plugin projects; the brew fastlane wrapper's GEM_HOME pollutes
+    # the child env and breaks cocoapods. See common_helpers.rb
+    # `with_clean_subprocess_env`.
+    FastlaneCliConfig.with_clean_subprocess_env do
+      sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} clean", options))
+      sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options))
+      sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} build ios --release --no-codesign", options))
+    end
 
     provisioning_profile = options[:provisioning_profile_name] || ENV["IOS_PROVISIONING_PROFILE_NAME"]
     export_options = if provisioning_profile.to_s.strip.empty?

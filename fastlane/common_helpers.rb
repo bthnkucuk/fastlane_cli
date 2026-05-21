@@ -408,6 +408,65 @@ module FastlaneCliConfig
     flutter_command(options)
   end
 
+  # Env vars stripped by `with_clean_subprocess_env` before yielding.
+  #
+  # The brew `/opt/homebrew/bin/fastlane` wrapper prepends its own Ruby to
+  # PATH and pins GEM_HOME / GEM_PATH at the bundled gem cache. Any child
+  # process inherits that env — including `flutter build ipa`, which then
+  # invokes `pod` under a Ruby that can no longer see its own cocoapods
+  # gem ("CocoaPods is installed but broken … different Ruby"). Wrap any
+  # sh-out that may transitively spawn `pod` (`flutter build ipa`,
+  # `flutter pub get` on iOS-plugin projects) in `with_clean_subprocess_env`
+  # so the child sees the user's original Ruby/gem env.
+  SUBPROCESS_ENV_KEYS_TO_SCRUB = %w[
+    GEM_HOME
+    GEM_PATH
+    RUBYOPT
+    RUBYLIB
+    BUNDLE_GEMFILE
+    BUNDLE_PATH
+    BUNDLE_BIN_PATH
+    BUNDLER_VERSION
+    BUNDLER_SETUP
+  ].freeze
+
+  # Path-segment substrings that the brew fastlane wrapper / its libexec
+  # prepend to PATH. Stripped from PATH inside `with_clean_subprocess_env`
+  # so the child resolves `ruby` / `pod` from the user's normal PATH.
+  SUBPROCESS_PATH_SEGMENTS_TO_STRIP = [
+    "/Cellar/fastlane/",
+    "/.local/share/fastlane/"
+  ].freeze
+
+  # Yield with GEM_HOME/GEM_PATH/etc. stripped and brew fastlane's PATH
+  # additions removed, so the child process resolves `ruby` and `pod`
+  # against the user's normal environment. Restores ENV on the way out
+  # (including on exceptions).
+  def with_clean_subprocess_env
+    return unless block_given?
+
+    saved = SUBPROCESS_ENV_KEYS_TO_SCRUB.each_with_object({}) do |key, acc|
+      acc[key] = ENV.delete(key)
+    end
+
+    original_path = ENV["PATH"]
+    cleaned_path = clean_path_for_subprocess(original_path)
+    ENV["PATH"] = cleaned_path unless cleaned_path.nil?
+
+    yield
+  ensure
+    saved&.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+    ENV["PATH"] = original_path unless original_path.nil?
+  end
+
+  def clean_path_for_subprocess(path)
+    return nil if blank?(path)
+
+    path.split(File::PATH_SEPARATOR).reject do |segment|
+      SUBPROCESS_PATH_SEGMENTS_TO_STRIP.any? { |needle| segment.include?(needle) }
+    end.join(File::PATH_SEPARATOR)
+  end
+
   def path_or_default(value, default, options = {})
     resolve_app_path(blank?(value) ? default : value, options)
   end

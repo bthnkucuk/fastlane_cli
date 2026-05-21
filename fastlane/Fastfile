@@ -207,7 +207,15 @@ lane :internal_test do |options|
                    "ios/Flutter/Flutter.podspec ios/Flutter/Generated.xcconfig " \
                    "ios/Flutter/flutter_export_environment.sh"
   sh(FastlaneCliConfig.in_app_root(fast_clean_cmd, options)) if run_clean
-  sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options)) if run_pub_get
+  # `flutter pub get` may transitively spawn `pod install` on iOS-plugin
+  # projects. Strip GEM_HOME/PATH pollution from the brew fastlane wrapper
+  # so cocoapods loads under the user's Ruby. See common_helpers.rb
+  # `with_clean_subprocess_env`.
+  if run_pub_get
+    FastlaneCliConfig.with_clean_subprocess_env do
+      sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options))
+    end
+  end
 
   if run_android
     # In-process invocation (see v0.4.1 / `run_subline` rationale above).
@@ -223,7 +231,12 @@ lane :internal_test do |options|
       build_parts = ["#{flutter_cmd} build ipa --release"]
       build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
       build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
-      sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+      # `flutter build ipa` shells out to `pod install`; without a clean
+      # env it fails with "CocoaPods is installed but broken". See
+      # common_helpers.rb `with_clean_subprocess_env`.
+      FastlaneCliConfig.with_clean_subprocess_env do
+        sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+      end
     end
 
     # In-process invocation (see v0.4.1 / `run_subline` rationale above).
