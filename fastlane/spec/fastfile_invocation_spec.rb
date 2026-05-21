@@ -30,6 +30,13 @@ RSpec.describe "Fastfile sub-lane delegation" do
     File.join(FASTFILE_DIR, "android", "Fastfile")
   ].freeze
 
+  # Files in fastlane/ that are allowed to call `Dir.chdir`. Anything else
+  # introducing a chdir is a regression — see v0.4.5 cwd-loss bug. Paths
+  # are relative to FASTFILE_DIR for readable failure messages.
+  ALLOWED_DIR_CHDIR_FILES = %w[
+    common_helpers.rb
+  ].freeze
+
   # Lines that look like *documentation* of the old pattern (rationale
   # comments referencing the banned shape) are allowed. The check is
   # therefore "non-comment lines only" — we strip leading whitespace and
@@ -39,6 +46,38 @@ RSpec.describe "Fastfile sub-lane delegation" do
     content.lines.each_with_index.reject do |line, _idx|
       line.lstrip.start_with?("#")
     end
+  end
+
+  it "restricts `Dir.chdir` use to the allowlisted files inside fastlane/" do
+    # Inventory check: any Ruby file under fastlane/ that calls `Dir.chdir`
+    # outside the allowlist is flagged. This is the cwd-shift companion to
+    # the `sh(... fastlane (ios|android) ...)` ban above — both are about
+    # keeping the parent process's cwd predictable so sub-lanes don't crash
+    # on `Dir.getwd`.
+    ruby_files = Dir.glob(File.join(FASTFILE_DIR, "**", "*.rb")).reject do |file|
+      file.include?("/spec/") || file.include?("/vendor/")
+    end
+
+    offenders = ruby_files.each_with_object([]) do |file, list|
+      relative = file.sub("#{FASTFILE_DIR}/", "")
+      next if ALLOWED_DIR_CHDIR_FILES.include?(relative)
+
+      File.foreach(file).with_index do |line, idx|
+        stripped = line.lstrip
+        next if stripped.start_with?("#")
+        next unless line =~ /\bDir\.chdir\b/
+
+        list << [relative, idx + 1, line.strip]
+      end
+    end
+
+    expect(offenders).to be_empty, lambda {
+      formatted = offenders.map { |f, idx, l| "  #{f}:#{idx}: #{l}" }.join("\n")
+      "Found `Dir.chdir` outside the allowlist (#{ALLOWED_DIR_CHDIR_FILES.join(', ')}). " \
+        "All cwd shifts under fastlane/ must live inside common_helpers.rb so " \
+        "they can be paired with a deterministic restore — see the v0.4.5 " \
+        "cwd-loss fix in run_subline.\n#{formatted}"
+    }
   end
 
   FASTFILES.each do |path|
@@ -56,6 +95,25 @@ RSpec.describe "Fastfile sub-lane delegation" do
         formatted = offenders.map { |line, idx| "  #{path}:#{idx + 1}: #{line.strip}" }.join("\n")
         "Found `bundle exec fastlane` invocation(s) — drop the `bundle exec` " \
           "prefix; lanes run against the system / brew fastlane gem:\n#{formatted}"
+      }
+    end
+
+    it "does not introduce ad-hoc `Dir.chdir` inside Fastfile lanes (#{relative})" do
+      # Fastfile lanes must NOT call `Dir.chdir` directly — every cwd shift
+      # belongs inside a helper in common_helpers.rb where it can be paired
+      # with a deterministic restore. A stray `Dir.chdir` in a lane is how
+      # the v0.4.4 cwd-loss bug (sub-lane crashing on `getcwd` after
+      # xcodebuild) sneaks back in.
+      content = File.read(path)
+      offenders = self.class.non_comment_lines(content).select do |line, _|
+        line =~ /\bDir\.chdir\b/
+      end
+
+      expect(offenders).to be_empty, lambda {
+        formatted = offenders.map { |line, idx| "  #{path}:#{idx + 1}: #{line.strip}" }.join("\n")
+        "Found ad-hoc `Dir.chdir` in a Fastfile lane — cwd shifts must " \
+          "live inside a common_helpers helper (e.g. `run_subline`) so " \
+          "they can be paired with a deterministic restore.\n#{formatted}"
       }
     end
 
