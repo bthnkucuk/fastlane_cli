@@ -133,10 +133,53 @@ module FastlaneCliConfig
     "uploadCrashlyticsSymbolFile#{flavor_part}#{type_part}"
   end
 
+  # The (relative) directory `--split-debug-info` writes Dart obfuscation
+  # mapping files into. ONE source of truth shared by `flutter_build_flags`
+  # (which emits the build-time flag) and `resolve_split_debug_info_dir` /
+  # the `upload_flutter_symbols` lane (which uploads the resulting files).
+  # Comes from the `split_debug_info` option; defaults to "build/symbols".
+  #
+  # Pure function — no ENV / filesystem access — so it is unit-testable.
+  def split_debug_info_relative(options = {})
+    value = option(options, :split_debug_info)
+    blank?(value) ? "build/symbols" : value.to_s.strip
+  end
+
+  # Absolute path of the Dart obfuscation split-debug-info directory under the
+  # app root. Uses the SAME relative value `flutter_build_flags` passes to
+  # `--split-debug-info`, so the build step and the upload step never diverge.
+  def resolve_split_debug_info_dir(options = {})
+    resolve_app_path(split_debug_info_relative(options), options)
+  end
+
+  # Resolve the Firebase app id for a platform. Returns nil when nothing
+  # resolves (the caller soft-skips).
+  #
+  # Precedence:
+  #   1. `firebase_app_id` option.
+  #   2. ENV — FIREBASE_APP_ID_ANDROID (android) / FIREBASE_APP_ID_IOS (ios).
+  #
+  # Touches ENV (mirrors `resolve_identifier`); not a pure function.
+  def resolve_firebase_app_id(options = {}, platform:)
+    explicit = option(options, :firebase_app_id)
+    return explicit.to_s.strip unless blank?(explicit)
+
+    from_env = case platform
+               when :android
+                 env_first("FIREBASE_APP_ID_ANDROID")
+               when :ios
+                 env_first("FIREBASE_APP_ID_IOS")
+               end
+    return from_env.to_s.strip unless blank?(from_env)
+
+    nil
+  end
+
   # Extra `flutter build` flags driven by profile options.
   #   obfuscate (bool, default false) → "--obfuscate --split-debug-info=<dir>"
   #     applies to ALL artifacts (apk, appbundle, ipa). The dir comes from the
-  #     `split_debug_info` option, default "build/symbols".
+  #     `split_debug_info` option, default "build/symbols" (see
+  #     `split_debug_info_relative`).
   #   split_per_abi (bool, default false) → "--split-per-abi"
   #     applies ONLY when artifact == :apk (an AAB splits per-ABI natively;
   #     ipa is irrelevant). Silently ignored for :appbundle / :ipa.
@@ -147,10 +190,8 @@ module FastlaneCliConfig
     flags = []
 
     if bool_option(options, :obfuscate, default: false)
-      split_debug_info = option(options, :split_debug_info)
-      split_debug_info = "build/symbols" if blank?(split_debug_info)
       flags << "--obfuscate"
-      flags << "--split-debug-info=#{split_debug_info}"
+      flags << "--split-debug-info=#{split_debug_info_relative(options)}"
     end
 
     if artifact == :apk && bool_option(options, :split_per_abi, default: false)
@@ -609,6 +650,17 @@ module FastlaneCliConfig
     end.join(File::PATH_SEPARATOR)
   end
 
+  # True when `name` is an executable resolvable on PATH. Uses `which` and
+  # tolerates any failure (returns false) — never raises. Injectable so
+  # specs can stub the lookup without shelling out.
+  def command_available?(name)
+    return false if blank?(name)
+
+    system("which", name.to_s, out: File::NULL, err: File::NULL) ? true : false
+  rescue StandardError
+    false
+  end
+
   def path_or_default(value, default, options = {})
     resolve_app_path(blank?(value) ? default : value, options)
   end
@@ -1045,6 +1097,103 @@ module FastlaneCliConfig
 
     # 4. Nothing.
     nil
+  end
+
+  # ---------------------------------------------------------------------------
+  # Flutter Dart-obfuscation symbol upload
+  # ---------------------------------------------------------------------------
+  # An `--obfuscate --split-debug-info=<dir>` build writes Dart symbol mapping
+  # files into `<dir>`. Without uploading those to Crashlytics, Dart crash
+  # stack traces stay obfuscated. This step uploads them via the Firebase CLI:
+  #
+  #   firebase crashlytics:symbols:upload --app=<FIREBASE_APP_ID> <dir>
+  #
+  # Mirrors `upload_crashlytics_ndk_symbols`' soft-skip philosophy: it is an
+  # opt-in, never-hard-fail step. Returns a short Turkish summary-marker
+  # string and NEVER raises / never calls `UI.user_error!`.
+  #
+  # GATE: only acts when BOTH `obfuscate` AND `upload_symbols` are truthy.
+  # SOFT-SKIP markers (return value, no raise) when:
+  #   - the `firebase` CLI is not on PATH,
+  #   - the resolved split-debug-info directory is missing or empty,
+  #   - no Firebase app id resolves for the platform,
+  #   - the `firebase` invocation exits non-zero.
+  def upload_flutter_symbols(options = {}, platform:)
+    obfuscate = bool_option(options, :obfuscate, default: false)
+    upload = bool_option(options, :upload_symbols, default: false)
+
+    # GATE — neutral skip, do nothing.
+    return "atlandı" unless obfuscate && upload
+
+    unless command_available?("firebase")
+      ui_important(
+        "⚠️ Flutter symbol upload skipped: 'firebase' CLI not found on PATH. " \
+        "Install it via `npm i -g firebase-tools` or `brew install firebase-cli`."
+      )
+      return "atlandı (firebase CLI yok)"
+    end
+
+    symbols_dir = resolve_split_debug_info_dir(options)
+    if blank?(symbols_dir) || !Dir.exist?(symbols_dir) ||
+       Dir.glob(File.join(symbols_dir, "**", "*")).select { |p| File.file?(p) }.empty?
+      ui_important(
+        "⚠️ Flutter symbol upload skipped: split-debug-info directory " \
+        "#{symbols_dir.inspect} is missing or empty."
+      )
+      return "atlandı (split-debug-info dizini boş)"
+    end
+
+    app_id = resolve_firebase_app_id(options, platform: platform)
+    if blank?(app_id)
+      ui_important(
+        "⚠️ Flutter symbol upload skipped: no Firebase app id. Set the " \
+        "#{platform == :android ? 'FIREBASE_APP_ID_ANDROID' : 'FIREBASE_APP_ID_IOS'} " \
+        "env var or pass the firebase_app_id option."
+      )
+      return "atlandı (Firebase app id yok)"
+    end
+
+    command = "firebase crashlytics:symbols:upload " \
+              "--app=#{Shellwords.escape(app_id)} #{Shellwords.escape(symbols_dir)}"
+
+    succeeded = false
+    with_clean_subprocess_env do
+      succeeded = system(in_app_root(command, options))
+    end
+
+    if succeeded
+      ui_success("✅ Flutter Dart symbols uploaded to Crashlytics (app=#{app_id})")
+      "yüklendi (flutter symbols)"
+    else
+      ui_important(
+        "⚠️ Flutter symbol upload skipped: `firebase crashlytics:symbols:upload` " \
+        "exited non-zero. Crash traces may stay obfuscated."
+      )
+      "atlandı (firebase symbols:upload başarısız)"
+    end
+  rescue => e
+    ui_important(
+      "⚠️ Flutter symbol upload skipped: #{e.message.to_s.lines.first.to_s.strip}"
+    )
+    "atlandı (firebase symbols:upload başarısız)"
+  end
+
+  # Thin UI wrappers so this module degrades gracefully when FastlaneCore is
+  # not loaded (e.g. specs). Mirrors `print_summary_box`'s `defined?` guard.
+  def ui_important(text)
+    if defined?(FastlaneCore::UI)
+      FastlaneCore::UI.important(text)
+    else
+      warn(text)
+    end
+  end
+
+  def ui_success(text)
+    if defined?(FastlaneCore::UI)
+      FastlaneCore::UI.success(text)
+    else
+      puts(text)
+    end
   end
 
   def fastlane_option_tokens(options = {}, allowed_keys: nil)

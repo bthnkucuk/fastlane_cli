@@ -17,6 +17,7 @@ RSpec.describe FastlaneCliConfig do
     FASTLANE_FLUTTER_CMD FLUTTER_CMD
     NO_COLOR
     GOOGLE_PLAY_JSON_KEY_PATH
+    FIREBASE_APP_ID_ANDROID FIREBASE_APP_ID_IOS
   ].freeze
 
   around(:each) do |ex|
@@ -271,6 +272,200 @@ RSpec.describe FastlaneCliConfig do
           { obfuscate: true, split_per_abi: true }, artifact: :apk
         )
       ).to eq(["--obfuscate", "--split-debug-info=build/symbols", "--split-per-abi"])
+    end
+  end
+
+  describe ".split_debug_info_relative" do
+    it "defaults to build/symbols" do
+      expect(described_class.split_debug_info_relative({})).to eq("build/symbols")
+    end
+
+    it "honours an explicit split_debug_info option" do
+      expect(
+        described_class.split_debug_info_relative(split_debug_info: "out/dbg")
+      ).to eq("out/dbg")
+    end
+
+    it "trims surrounding whitespace" do
+      expect(
+        described_class.split_debug_info_relative(split_debug_info: "  out/dbg  ")
+      ).to eq("out/dbg")
+    end
+
+    it "falls back to the default for a blank value" do
+      expect(
+        described_class.split_debug_info_relative(split_debug_info: "   ")
+      ).to eq("build/symbols")
+    end
+
+    it "matches the dir flutter_build_flags emits" do
+      flag = described_class.flutter_build_flags(
+        { obfuscate: true, split_debug_info: "out/dbg" }, artifact: :apk
+      ).find { |f| f.start_with?("--split-debug-info=") }
+      expect(flag).to eq(
+        "--split-debug-info=#{described_class.split_debug_info_relative(split_debug_info: 'out/dbg')}"
+      )
+    end
+  end
+
+  describe ".resolve_split_debug_info_dir" do
+    it "resolves the default dir under the app root" do
+      Dir.mktmpdir do |tmp|
+        app_root = File.realpath(tmp)
+        expect(
+          described_class.resolve_split_debug_info_dir(app_root: app_root)
+        ).to eq(File.join(app_root, "build/symbols"))
+      end
+    end
+
+    it "resolves an overridden dir under the app root" do
+      Dir.mktmpdir do |tmp|
+        app_root = File.realpath(tmp)
+        expect(
+          described_class.resolve_split_debug_info_dir(
+            app_root: app_root, split_debug_info: "out/dbg"
+          )
+        ).to eq(File.join(app_root, "out/dbg"))
+      end
+    end
+  end
+
+  describe ".resolve_firebase_app_id" do
+    it "prefers the firebase_app_id option" do
+      expect(
+        described_class.resolve_firebase_app_id(
+          { firebase_app_id: "1:opt:android:abc" }, platform: :android
+        )
+      ).to eq("1:opt:android:abc")
+    end
+
+    it "the option beats the env var" do
+      ENV["FIREBASE_APP_ID_ANDROID"] = "1:env:android:xyz"
+      expect(
+        described_class.resolve_firebase_app_id(
+          { firebase_app_id: "1:opt:android:abc" }, platform: :android
+        )
+      ).to eq("1:opt:android:abc")
+    end
+
+    it "falls back to FIREBASE_APP_ID_ANDROID for android" do
+      ENV["FIREBASE_APP_ID_ANDROID"] = "1:env:android:xyz"
+      expect(
+        described_class.resolve_firebase_app_id({}, platform: :android)
+      ).to eq("1:env:android:xyz")
+    end
+
+    it "falls back to FIREBASE_APP_ID_IOS for ios" do
+      ENV["FIREBASE_APP_ID_IOS"] = "1:env:ios:xyz"
+      expect(
+        described_class.resolve_firebase_app_id({}, platform: :ios)
+      ).to eq("1:env:ios:xyz")
+    end
+
+    it "does not cross platforms — android env is ignored for ios" do
+      ENV["FIREBASE_APP_ID_ANDROID"] = "1:env:android:xyz"
+      expect(
+        described_class.resolve_firebase_app_id({}, platform: :ios)
+      ).to be_nil
+    end
+
+    it "returns nil when nothing resolves" do
+      expect(
+        described_class.resolve_firebase_app_id({}, platform: :android)
+      ).to be_nil
+    end
+  end
+
+  describe ".upload_flutter_symbols" do
+    it "returns a neutral skip when obfuscate is false" do
+      expect(
+        described_class.upload_flutter_symbols(
+          { upload_symbols: true }, platform: :android
+        )
+      ).to eq("atlandı")
+    end
+
+    it "returns a neutral skip when upload_symbols is false" do
+      expect(
+        described_class.upload_flutter_symbols(
+          { obfuscate: true }, platform: :android
+        )
+      ).to eq("atlandı")
+    end
+
+    it "soft-skips when the firebase CLI is absent" do
+      allow(described_class).to receive(:command_available?).with("firebase").and_return(false)
+      expect(
+        described_class.upload_flutter_symbols(
+          { obfuscate: true, upload_symbols: true }, platform: :android
+        )
+      ).to eq("atlandı (firebase CLI yok)")
+    end
+
+    it "soft-skips when the split-debug-info directory is missing" do
+      Dir.mktmpdir do |tmp|
+        app_root = File.realpath(tmp)
+        allow(described_class).to receive(:command_available?).with("firebase").and_return(true)
+        expect(
+          described_class.upload_flutter_symbols(
+            { obfuscate: true, upload_symbols: true, app_root: app_root },
+            platform: :android
+          )
+        ).to eq("atlandı (split-debug-info dizini boş)")
+      end
+    end
+
+    it "soft-skips when no Firebase app id resolves" do
+      Dir.mktmpdir do |tmp|
+        app_root = File.realpath(tmp)
+        symbols_dir = File.join(app_root, "build/symbols")
+        write_file(File.join(symbols_dir, "app.android-arm64.symbols"), "data")
+        allow(described_class).to receive(:command_available?).with("firebase").and_return(true)
+        expect(
+          described_class.upload_flutter_symbols(
+            { obfuscate: true, upload_symbols: true, app_root: app_root },
+            platform: :android
+          )
+        ).to eq("atlandı (Firebase app id yok)")
+      end
+    end
+
+    it "returns the success marker when the firebase upload succeeds" do
+      Dir.mktmpdir do |tmp|
+        app_root = File.realpath(tmp)
+        symbols_dir = File.join(app_root, "build/symbols")
+        write_file(File.join(symbols_dir, "app.android-arm64.symbols"), "data")
+        allow(described_class).to receive(:command_available?).with("firebase").and_return(true)
+        allow(described_class).to receive(:system).and_return(true)
+        expect(
+          described_class.upload_flutter_symbols(
+            {
+              obfuscate: true, upload_symbols: true, app_root: app_root,
+              firebase_app_id: "1:opt:android:abc"
+            },
+            platform: :android
+          )
+        ).to eq("yüklendi (flutter symbols)")
+      end
+    end
+
+    it "soft-skips when the firebase upload exits non-zero" do
+      Dir.mktmpdir do |tmp|
+        app_root = File.realpath(tmp)
+        symbols_dir = File.join(app_root, "build/symbols")
+        write_file(File.join(symbols_dir, "app.android-arm64.symbols"), "data")
+        allow(described_class).to receive(:command_available?).with("firebase").and_return(true)
+        allow(described_class).to receive(:system).and_return(false)
+        expect(
+          described_class.upload_flutter_symbols(
+            {
+              obfuscate: true, upload_symbols: true, app_root: app_root,
+              firebase_app_id: "1:opt:android:abc"
+            },
+            platform: :android
+          )
+        ).to eq("atlandı (firebase symbols:upload başarısız)")
+      end
     end
   end
 

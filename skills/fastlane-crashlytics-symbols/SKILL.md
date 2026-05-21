@@ -217,6 +217,57 @@ it sets the summary marker to
 and the AAB build + Play Store upload still succeed. NDK symbol upload never
 hard-fails the lane — mirrors the iOS `symbols_status` philosophy.
 
+## Flutter Dart-obfuscation symbols (both platforms, since v0.11.0)
+
+A release built with `--obfuscate --split-debug-info=<dir>` (driven by the
+`obfuscate` profile option — see `FastlaneCliConfig.flutter_build_flags`)
+writes **Dart** symbol mapping files into `<dir>`. These are separate from
+the iOS dSYMs and the Android NDK native symbols above — without uploading
+them, **Dart** crash stack traces stay obfuscated.
+
+The Dart symbol upload is wired into the Android `internal_testing` /
+`production` lanes and the iOS `test_flight` lane, via the shared
+`FastlaneCliConfig.upload_flutter_symbols(options, platform:)` method.
+
+### Gate — `obfuscate` AND `upload_symbols`
+
+It acts only when **BOTH** `obfuscate: "true"` **AND** `upload_symbols: "true"`
+are set (the same `upload_symbols` flag that drives dSYM / NDK upload). If
+either is off it is a neutral no-op (`Dart symbols : atlandı`). This makes
+sense: there are no Dart symbols to upload unless the build was obfuscated.
+
+### Prerequisites
+
+- The **`firebase` CLI** must be on PATH (`npm i -g firebase-tools` or
+  `brew install firebase-cli`). fastlane_cli soft-skips if it is absent.
+- A **Firebase app id**, resolved from the `firebase_app_id` option →
+  `FIREBASE_APP_ID_ANDROID` (android) / `FIREBASE_APP_ID_IOS` (ios) env var.
+
+```sh
+export FIREBASE_APP_ID_ANDROID="1:1234567890:android:abcdef"
+export FIREBASE_APP_ID_IOS="1:1234567890:ios:abcdef"
+```
+
+### The command
+
+On the happy path the helper runs, from the app root, wrapped in
+`with_clean_subprocess_env`:
+
+```sh
+firebase crashlytics:symbols:upload --app=<FIREBASE_APP_ID> <split-debug-info-dir>
+```
+
+`<split-debug-info-dir>` is the SAME directory `--split-debug-info` wrote to
+(the `split_debug_info` option, default `build/symbols`) — `flutter_build_flags`
+and `upload_flutter_symbols` share one resolver so they never diverge.
+
+### Soft-skip behaviour
+
+Like the dSYM / NDK steps, this never hard-fails the release. It soft-skips
+(and the build + store upload still succeed) when the `firebase` CLI is
+absent, the split-debug-info directory is missing/empty, no Firebase app id
+resolves, or the `firebase` upload exits non-zero.
+
 ## After invoking
 
 Quote the summary box's symbols line back to the user.
@@ -245,6 +296,21 @@ and the box lists the script, the script source, the plist, and the dSYM paths u
   uploaded; only symbols were skipped.
 - `NDK symbols : yüklendi (<task>)` — upload succeeded; `<task>` is the exact
   `uploadCrashlyticsSymbolFile<Flavor>Release` task that ran.
+
+**Both platforms** — `Dart symbols` line (Flutter obfuscation symbols):
+
+- `Dart symbols : atlandı` — `obfuscate` and/or `upload_symbols` was false
+  (the gate did not open). No Dart symbols to upload.
+- `Dart symbols : atlandı (firebase CLI yok)` — the gate opened but the
+  `firebase` CLI is not on PATH.
+- `Dart symbols : atlandı (split-debug-info dizini boş)` — the
+  `--split-debug-info` directory is missing or empty (no obfuscated build
+  artefacts found).
+- `Dart symbols : atlandı (Firebase app id yok)` — no `firebase_app_id`
+  option and no `FIREBASE_APP_ID_ANDROID` / `FIREBASE_APP_ID_IOS` env var.
+- `Dart symbols : atlandı (firebase symbols:upload başarısız)` — the
+  `firebase crashlytics:symbols:upload` invocation exited non-zero.
+- `Dart symbols : yüklendi (flutter symbols)` — upload succeeded.
 
 ## Troubleshooting
 
