@@ -229,21 +229,24 @@ platform :ios do
     upload_symbols = FastlaneCliConfig.bool_option(options, :upload_symbols, default: false)
     symbols_status = "atlandı"
     if upload_symbols
-      upload_script = options[:upload_symbols_script] || ENV["IOS_UPLOAD_SYMBOLS_SCRIPT"]
-      gsp_path = options[:google_service_info_plist] || ENV["IOS_GOOGLE_SERVICE_INFO_PLIST"]
+      script_result = FastlaneCliConfig.resolve_upload_symbols_script_with_source(options)
+      upload_script = script_result[:path]
+      gsp_path = FastlaneCliConfig.resolve_google_service_info_plist(options)
       dsym_path = options[:dsym_path] || ENV["IOS_DSYM_PATH"] || "./build/ios/archive/Runner.xcarchive/dSYMs"
-      upload_script = FastlaneCliConfig.resolve_app_path(upload_script, options)
-      gsp_path = FastlaneCliConfig.resolve_app_path(gsp_path, options)
       dsym_path = FastlaneCliConfig.resolve_app_path(dsym_path, options)
 
-      if upload_script.to_s.strip.empty? || gsp_path.to_s.strip.empty?
-        UI.important("⚠️ upload_symbols enabled but script/gsp path missing. Skipping symbol upload.")
-        symbols_status = "atlandı (script/gsp eksik)"
+      if upload_script.to_s.strip.empty?
+        UI.important("⚠️ upload_symbols enabled but upload-symbols binary not found. Skipping symbol upload.")
+        symbols_status = "atlandı (upload-symbols bulunamadı)"
+      elsif gsp_path.to_s.strip.empty?
+        UI.important("⚠️ upload_symbols enabled but GoogleService-Info.plist not found. Skipping symbol upload.")
+        symbols_status = "atlandı (GoogleService-Info.plist bulunamadı)"
       else
+        UI.message("Crashlytics upload-symbols kaynağı: #{script_result[:source]} (#{upload_script})")
         sh(
           "#{Shellwords.escape(upload_script.to_s)} -gsp #{Shellwords.escape(gsp_path.to_s)} -p ios #{Shellwords.escape(dsym_path.to_s)}"
         )
-        symbols_status = "yüklendi (#{dsym_path})"
+        symbols_status = "yüklendi (kaynak: #{script_result[:source]})"
       end
     end
 
@@ -316,15 +319,27 @@ platform :ios do
 
   desc "Upload iOS dSYMs to Firebase Crashlytics"
   lane :upload_dsyms do |options|
-    upload_script = options[:upload_symbols_script] || ENV["IOS_UPLOAD_SYMBOLS_SCRIPT"]
-    gsp_path = options[:google_service_info_plist] || ENV["IOS_GOOGLE_SERVICE_INFO_PLIST"]
+    script_result = FastlaneCliConfig.resolve_upload_symbols_script_with_source(options)
+    upload_script = script_result[:path]
+    gsp_path = FastlaneCliConfig.resolve_google_service_info_plist(options)
     dsym_path = options[:dsym_path] || ENV["IOS_DSYM_PATH"] || "./build/ios/archive/Runner.xcarchive/dSYMs"
-    upload_script = FastlaneCliConfig.resolve_app_path(upload_script, options)
-    gsp_path = FastlaneCliConfig.resolve_app_path(gsp_path, options)
     dsym_path = FastlaneCliConfig.resolve_app_path(dsym_path, options)
 
-    UI.user_error!("upload_symbols_script is required") if upload_script.to_s.strip.empty?
-    UI.user_error!("google_service_info_plist is required") if gsp_path.to_s.strip.empty?
+    if upload_script.to_s.strip.empty?
+      UI.user_error!(
+        "upload-symbols binary not found. Auto-discovery checked: explicit " \
+        "override (IOS_UPLOAD_SYMBOLS_SCRIPT), CocoaPods " \
+        "(ios/Pods/FirebaseCrashlytics/upload-symbols), SwiftPM DerivedData, " \
+        "and ios/scripts/upload-symbols."
+      )
+    end
+    if gsp_path.to_s.strip.empty?
+      UI.user_error!(
+        "GoogleService-Info.plist not found. Auto-discovery checked: explicit " \
+        "override (IOS_GOOGLE_SERVICE_INFO_PLIST), ios/flavors/<flavor>/, and " \
+        "ios/Runner/GoogleService-Info.plist."
+      )
+    end
 
     sh(
       "#{Shellwords.escape(upload_script.to_s)} -gsp #{Shellwords.escape(gsp_path.to_s)} -p ios #{Shellwords.escape(dsym_path.to_s)}"
@@ -334,6 +349,7 @@ platform :ios do
       "iOS · dSYM yüklendi (Crashlytics)",
       [
         "Upload script : #{upload_script}",
+        "Script source : #{script_result[:source]}",
         "GSP plist     : #{gsp_path}",
         "dSYM path     : #{dsym_path}"
       ]

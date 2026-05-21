@@ -148,16 +148,35 @@ caller's profile or env, not here.
 - Android: `GOOGLE_PLAY_JSON_KEY_PATH` (path to service account JSON).
 - Bundle / package id: `IOS_APP_IDENTIFIER` / `ANDROID_PACKAGE_NAME` /
   `FASTLANE_APP_IDENTIFIER` OR via profile/option args.
-- iOS Crashlytics symbols (optional, only consumed when an action sets
+- iOS Crashlytics symbols (only consumed when an action sets
   `upload_symbols: "true"` on the `test_flight` lane — see
-  `fastlane/ios/Fastfile` `upload_dsyms` lane for the standalone handler):
-  `IOS_UPLOAD_SYMBOLS_SCRIPT` (path to Firebase's `upload-symbols` binary),
-  `IOS_GOOGLE_SERVICE_INFO_PLIST`, optional `IOS_DSYM_PATH` (default:
-  `./build/ios/archive/Runner.xcarchive/dSYMs`). Missing script / GSP causes
-  a soft skip with a `"atlandı (script/gsp eksik)"` summary marker — never
-  hard-fails the upload. **Android Crashlytics mapping / NDK symbol upload
-  is not wired** — no Android lane invokes
-  `uploadCrashlyticsMappingFile<Variant>` /
+  `fastlane/ios/Fastfile` `upload_dsyms` lane for the standalone handler).
+  As of v0.8.0 this is **zero-config**: the `upload-symbols` binary and the
+  `GoogleService-Info.plist` are auto-discovered at runtime by
+  `FastlaneCliConfig.resolve_upload_symbols_script` /
+  `resolve_google_service_info_plist`. A standard SwiftPM-Firebase app with
+  `ios/flavors/<flavor>/GoogleService-Info.plist` (or
+  `ios/Runner/GoogleService-Info.plist`) needs **no Crashlytics env vars**.
+  Discovery precedence:
+  - **upload-symbols**: explicit override → CocoaPods
+    (`ios/Pods/FirebaseCrashlytics/upload-symbols`) → SwiftPM DerivedData
+    glob (`~/Library/Developer/Xcode/DerivedData/*/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/upload-symbols`,
+    newest by mtime, then copied to a stable per-user cache at
+    `~/Library/Caches/fastlane_cli/upload-symbols`) → vendored
+    `ios/scripts/upload-symbols` → nil.
+  - **GoogleService-Info.plist**: explicit override → flavor convention
+    (`ios/flavors/<flavor>/GoogleService-Info.plist`) →
+    `ios/Runner/GoogleService-Info.plist` → nil.
+  `IOS_UPLOAD_SYMBOLS_SCRIPT` and `IOS_GOOGLE_SERVICE_INFO_PLIST` remain as
+  **optional explicit overrides** for non-standard layouts — a user who set
+  them keeps the exact same behaviour. Optional `IOS_DSYM_PATH` (default:
+  `./build/ios/archive/Runner.xcarchive/dSYMs`). When discovery resolves
+  nothing, `test_flight` soft-skips with a `"atlandı (upload-symbols
+  bulunamadı)"` / `"atlandı (GoogleService-Info.plist bulunamadı)"` summary
+  marker — never hard-fails the upload — while the standalone `upload_dsyms`
+  lane hard-fails (`UI.user_error!`) since a no-op symbol upload is useless.
+  **Android Crashlytics mapping / NDK symbol upload is not wired** — no
+  Android lane invokes `uploadCrashlyticsMappingFile<Variant>` /
   `uploadCrashlyticsSymbolFile<Variant>`. Add via consumer profile + a new
   lane if needed.
 
