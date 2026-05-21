@@ -52,7 +52,14 @@ jobs:
         run: dart analyze
 
       - name: Run tests with coverage
-        run: dart run coverage:test_with_coverage
+        # `--test=test` pins the runner to the FULL test/ tree (e2e included).
+        # It is also the coverage package's current default, but stating it
+        # explicitly guarantees the complete suite runs regardless of a future
+        # coverage-package default change or a stray coverage_options.yaml.
+        # No --tags / --exclude-tags: every file, including the `perf`-tagged
+        # benchmark, runs and a single failure fails the job (non-zero exit
+        # from the spawned `dart run ... test` propagates).
+        run: dart run coverage:test_with_coverage --test=test
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v7
