@@ -134,8 +134,9 @@ Owner: one agent for C1+C2 authoring; C3 needs A2 shell.
 ### C1. Skills directory + index
 **Depends on**: nothing.
 
-Create `skills/` at repo root with one SKILL.md per feature. Migrate the
-existing `.claude/skills/fastlane-summary-log/` here.
+Create `skills/` at repo root with one SKILL.md per feature. `.claude/skills`
+is a symlink to this tree so the same skills auto-load when Claude Code runs
+inside the fastlane_cli repo itself.
 
 Initial skill set:
 - `fastlane-cli-setup` — scaffold `cli_profile.yaml` + env from a Flutter project.
@@ -293,7 +294,7 @@ subcommand + skills sections need A2 + C1 final.
 - Troubleshooting.
 
 ### F2. CONTRIBUTING + lane-author guide
-- Summary-box mandate ([`fastlane-summary-log`](.claude/skills/fastlane-summary-log/SKILL.md)).
+- Summary-box mandate ([`fastlane-summary-log`](skills/fastlane-summary-log/SKILL.md)).
 - How to add a new action to base/profile.
 
 ---
