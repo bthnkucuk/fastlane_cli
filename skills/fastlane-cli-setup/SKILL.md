@@ -40,12 +40,15 @@ isn't shipping):
 # Only declare app-specific fields here.
 
 app:
-  name: <App display name>
-  root_path: .                # project root, relative to this file
-  ios:
-    app_identifier: <com.example.app>
-  android:
-    package_name: <com.example.app>
+  name: MyApp
+  root_path: .                  # project root, relative to this file
+  package_name: com.example.myapp  # Android applicationId (optional)
+  bundle_id:    com.example.myapp  # iOS bundle id          (optional)
+
+# App identity (package_name / bundle_id) belongs in the `app:` block, NOT in
+# default_options — default_options is for build/lane options. Both keys are
+# optional. They are the LOWEST-precedence option layer: a value also set in
+# default_options, a per-action command.options block, or a --option flag wins.
 
 # default_locale: en           # uncomment to override base (base default: tr)
 # supported_locales: [en, tr]  # uncomment to fully replace base list
@@ -87,6 +90,9 @@ Notes:
   - `categories` / `actions` — merged by `id`.
   - `default_options` — deep-merges (app wins per key), then folds underneath
     every `fastlane`-action's `command.options` (per-action keys win).
+- Option precedence (lowest → highest):
+  `app:` block identity (`package_name` / `bundle_id`) < `default_options` <
+  per-action `command.options` < `--option` CLI flag.
 
 ## Step 3 — Credential env vars
 

@@ -14,6 +14,8 @@ class CliProfile {
     required this.categories,
     required this.actions,
     required this.shortcutActionIds,
+    this.packageName,
+    this.bundleId,
   }) : actionsById = {for (final action in actions) action.id: action};
 
   final String appName;
@@ -21,6 +23,20 @@ class CliProfile {
   final String appRootPath;
   final String fastlanePath;
   final String fastlaneRunnerPath;
+
+  /// Optional Android `applicationId`, declared under the profile's `app:`
+  /// block as `app.package_name`. When set, [ProfileLoader] folds it into
+  /// every fastlane action's resolved `command.options` as the `package_name`
+  /// option key — at the LOWEST precedence (below `default_options`, below a
+  /// per-action `command.options` entry, below a `--option` CLI flag).
+  final String? packageName;
+
+  /// Optional iOS bundle id, declared under the profile's `app:` block as
+  /// `app.bundle_id`. When set, [ProfileLoader] folds it into every fastlane
+  /// action's resolved `command.options` as the `app_identifier` option key
+  /// (the key `resolve_identifier` in `fastlane/common_helpers.rb` reads) —
+  /// at the same lowest precedence as [packageName].
+  final String? bundleId;
   final AppLocale defaultLocale;
   final List<AppLocale> supportedLocales;
   final List<CliCategory> categories;

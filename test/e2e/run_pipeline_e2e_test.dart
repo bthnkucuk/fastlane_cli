@@ -342,6 +342,134 @@ void main() {
     });
 
     // ======================================================================
+    // 3b. App-block identity: app.package_name / app.bundle_id reach argv,
+    //     and lose to default_options / command.options / --option flag.
+    // ======================================================================
+
+    group('app: block identity (package_name / bundle_id)', () {
+      test('app.package_name and app.bundle_id reach the fastlane argv',
+          () async {
+        final profilePath = seedApp(profileYaml: fullProfileYaml);
+        final loader = loaderFor(fastlaneDirOf(profilePath));
+        final profile = await loader.load(profilePath);
+
+        // Model carries the parsed identity.
+        expect(profile.packageName, 'com.example.myapp');
+        expect(profile.bundleId, 'com.example.myapp.ios');
+
+        // android_internal declares no package_name of its own → the
+        // app: block identity is folded in as the `package_name` option.
+        final request = const CommandBuilder().build(
+          profile: profile,
+          action: profile.actionsById['android_internal']!,
+        );
+        expect(request.arguments, contains('package_name:com.example.myapp'));
+        expect(
+          request.arguments,
+          contains('app_identifier:com.example.myapp.ios'),
+        );
+      });
+
+      test('default_options outranks the app: block identity', () async {
+        final profilePath =
+            seedApp(profileYaml: identityOverriddenByDefaultOptionsYaml);
+        final loader = loaderFor(fastlaneDirOf(profilePath));
+        final profile = await loader.load(profilePath);
+
+        final request = const CommandBuilder().build(
+          profile: profile,
+          action: profile.actionsById['android_ship']!,
+        );
+        // default_options value wins on collision.
+        expect(
+          request.arguments,
+          contains('package_name:com.example.defaultopts'),
+        );
+        expect(
+          request.arguments,
+          contains('app_identifier:com.example.defaultopts.ios'),
+        );
+        // The losing app: block identity must NOT appear.
+        expect(
+          request.arguments,
+          isNot(contains('package_name:com.example.appblock')),
+        );
+      });
+
+      test('per-action command.options outranks the app: block identity',
+          () async {
+        final profilePath =
+            seedApp(profileYaml: identityOverriddenByActionOptionsYaml);
+        final loader = loaderFor(fastlaneDirOf(profilePath));
+        final profile = await loader.load(profilePath);
+
+        final request = const CommandBuilder().build(
+          profile: profile,
+          action: profile.actionsById['android_ship']!,
+        );
+        // The per-action option wins; the app: block identity loses.
+        expect(
+          request.arguments,
+          contains('package_name:com.example.actionopts'),
+        );
+        expect(
+          request.arguments,
+          isNot(contains('package_name:com.example.appblock')),
+        );
+      });
+
+      test('--option flag outranks the app: block identity', () async {
+        final profilePath = seedApp(profileYaml: fullProfileYaml);
+        final executor = _CapturingExecutor();
+        final result = await _runRun(
+          args: <String>[
+            'android_internal',
+            '--profile',
+            profilePath,
+            '--option',
+            'package_name=com.example.cliflag',
+          ],
+          fastlaneDir: fastlaneDirOf(profilePath),
+          executor: executor,
+        );
+
+        expect(result.exitCode, 0);
+        final argv = executor.lastRequest!.arguments;
+        expect(argv, contains('package_name:com.example.cliflag'));
+        // The app: block identity must NOT survive the flag.
+        expect(argv, isNot(contains('package_name:com.example.myapp')));
+      });
+
+      test('a profile with neither identity key still loads and runs',
+          () async {
+        // overlayProfileYaml carries no package_name / bundle_id.
+        final profilePath = seedApp(
+          profileYaml: overlayProfileYaml,
+          baseYaml: baseProfileYaml,
+        );
+        final loader = loaderFor(fastlaneDirOf(profilePath));
+        final profile = await loader.load(profilePath);
+
+        expect(profile.packageName, isNull);
+        expect(profile.bundleId, isNull);
+
+        final request = const CommandBuilder().build(
+          profile: profile,
+          action: profile.actionsById['android_internal']!,
+        );
+        // No identity options leak in when the keys are absent.
+        expect(
+          request.arguments.any((a) => a.startsWith('package_name:')),
+          isFalse,
+        );
+        expect(
+          request.arguments.any((a) => a.startsWith('app_identifier:')),
+          isFalse,
+        );
+      });
+    });
+
+    // ======================================================================
     // 4. --dry-run e2e through the real RunCommand + execution service.
     // ======================================================================
 

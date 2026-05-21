@@ -87,6 +87,39 @@ No DI container — direct constructor injection (small surface).
 
 The merge is implemented in `lib/src/services/profile_loader.dart`.
 
+#### App identity — `app.package_name` / `app.bundle_id`
+
+An app's store identifiers are *app identity*, not build/lane options, so they
+live in the `app:` block next to `name` / `root_path` / `fastlane_path`:
+
+```yaml
+app:
+  name: MyApp
+  root_path: ..
+  fastlane_path: fastlane
+  package_name: com.example.myapp   # Android applicationId  (optional)
+  bundle_id:    com.example.myapp   # iOS bundle id           (optional)
+```
+
+Both keys are **optional**. When set, `ProfileLoader` folds them into every
+fastlane action's resolved `command.options` as the option keys the Ruby side
+already resolves (`fastlane/common_helpers.rb` `resolve_identifier`):
+`app.package_name` → `package_name`, `app.bundle_id` → `app_identifier`.
+
+**Option precedence (lowest → highest):**
+
+```
+app: block identity  <  default_options  <  per-action command.options  <  --option flag
+```
+
+So a value also present in `default_options`, a per-action `command.options`
+block, or a `--option` CLI flag wins — the `app:` block is only the base
+default source. Profiles that still carry `package_name` / `app_identifier`
+inside `default_options` keep working unchanged (that path is untouched; it
+simply sits at a higher precedence). The fold point is
+`lib/src/services/profile_loader.dart` `load` — the `appIdentityOptions` map is
+spread *underneath* `_parseDefaultOptions(...)`.
+
 ---
 
 ## 4. How the CLI runs a lane

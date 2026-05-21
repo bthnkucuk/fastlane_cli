@@ -46,6 +46,13 @@ class ProfileLoader {
     final appRootRaw = _requireString(appMap, 'root_path');
     final fastlanePath = _stringOrDefault(appMap, 'fastlane_path', 'fastlane');
 
+    // App identity — optional. The Android `applicationId` / iOS bundle id
+    // belong in the `app:` block (next to `name`, `root_path`), NOT in
+    // `default_options` which is for build/lane options. Both keys are
+    // optional; absent → `null`.
+    final packageName = _stringOrNull(appMap['package_name']);
+    final bundleId = _stringOrNull(appMap['bundle_id']);
+
     final appRootPath = p.normalize(
       p.isAbsolute(appRootRaw)
           ? appRootRaw
@@ -68,7 +75,22 @@ class ProfileLoader {
 
     final supportedLocales = _parseSupportedLocales(root, defaultLocale);
     final categories = _parseCategories(_requireList(root, 'categories'));
-    final defaultOptions = _parseDefaultOptions(root['default_options']);
+
+    // Option precedence, lowest → highest:
+    //   app: block identity  <  default_options  <  command.options  <  flag
+    // The `app:` identity is the base layer: it is merged UNDERNEATH
+    // `default_options` here (default_options wins on key collision), and the
+    // combined map is then folded underneath each action's own
+    // `command.options` by `_applyDefaultOptions` (per-action options win).
+    // The `--option` CLI flag layer is applied later, in `RunCommand`.
+    final appIdentityOptions = _appIdentityOptions(
+      packageName: packageName,
+      bundleId: bundleId,
+    );
+    final defaultOptions = <String, String>{
+      ...appIdentityOptions,
+      ..._parseDefaultOptions(root['default_options']),
+    };
     final actions = _applyDefaultOptions(
       _parseActions(_requireList(root, 'actions')),
       defaultOptions,
@@ -88,7 +110,31 @@ class ProfileLoader {
       categories: categories,
       actions: actions,
       shortcutActionIds: shortcuts,
+      packageName: packageName,
+      bundleId: bundleId,
     );
+  }
+
+  /// Maps the optional `app:` block identity fields to the fastlane option
+  /// keys the Ruby side resolves (`fastlane/common_helpers.rb`
+  /// `resolve_identifier`, which checks `:app_identifier`, `:bundle_identifier`,
+  /// `:package_name`):
+  ///   - `app.package_name` → `package_name` option (Android applicationId)
+  ///   - `app.bundle_id`    → `app_identifier` option (iOS bundle id)
+  /// Absent fields contribute nothing — the map only carries keys actually
+  /// declared. This is the LOWEST-precedence option layer; see [load].
+  Map<String, String> _appIdentityOptions({
+    String? packageName,
+    String? bundleId,
+  }) {
+    final options = <String, String>{};
+    if (packageName != null) {
+      options['package_name'] = packageName;
+    }
+    if (bundleId != null) {
+      options['app_identifier'] = bundleId;
+    }
+    return options;
   }
 
   /// Reads `app.fastlane_runner_path` from the unmerged profile and, if

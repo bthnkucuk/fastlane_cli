@@ -10,7 +10,9 @@ library;
 
 /// A full per-app profile that exercises the whole feature surface the e2e
 /// tests assert on:
-///  - a top-level `default_options:` block (lowest-precedence option layer),
+///  - an `app:` block carrying `package_name` / `bundle_id` identity (the
+///    lowest-precedence option layer),
+///  - a top-level `default_options:` block (sits above `app:` identity),
 ///  - a plain fastlane action that inherits every default verbatim,
 ///  - a fastlane action whose own `command.options` override one default,
 ///  - a `flutter` action (carries no options — defaults must NOT leak in),
@@ -27,6 +29,8 @@ app:
   fastlane_runner_path: fastlane
   default_locale: en
   supported_locales: [en, tr]
+  package_name: com.example.myapp
+  bundle_id: com.example.myapp.ios
 
 default_options:
   flavor: dev
@@ -165,6 +169,72 @@ actions:
       type: fastlane
       platform: android
       lane: internal_testing
+''';
+
+/// A profile whose `default_options` block ALSO carries a `package_name` /
+/// `app_identifier` — proving `default_options` outranks the `app:` block
+/// identity on key collision (precedence: app identity < default_options).
+const String identityOverriddenByDefaultOptionsYaml = '''
+app:
+  name: MyApp
+  root_path: .
+  fastlane_runner_path: fastlane
+  package_name: com.example.appblock
+  bundle_id: com.example.appblock.ios
+
+default_options:
+  package_name: com.example.defaultopts
+  app_identifier: com.example.defaultopts.ios
+
+categories:
+  - id: android
+    title:
+      tr: Android
+      en: Android
+    actions:
+      - android_ship
+actions:
+  - id: android_ship
+    category: android
+    title:
+      tr: Ship
+      en: Ship
+    command:
+      type: fastlane
+      platform: android
+      lane: internal_testing
+''';
+
+/// A profile whose per-action `command.options` carries `package_name` —
+/// proving a per-action option outranks BOTH the `app:` block identity and
+/// `default_options` on key collision.
+const String identityOverriddenByActionOptionsYaml = '''
+app:
+  name: MyApp
+  root_path: .
+  fastlane_runner_path: fastlane
+  package_name: com.example.appblock
+  bundle_id: com.example.appblock.ios
+
+categories:
+  - id: android
+    title:
+      tr: Android
+      en: Android
+    actions:
+      - android_ship
+actions:
+  - id: android_ship
+    category: android
+    title:
+      tr: Ship
+      en: Ship
+    command:
+      type: fastlane
+      platform: android
+      lane: internal_testing
+      options:
+        package_name: com.example.actionopts
 ''';
 
 /// Syntactically broken YAML — unbalanced brackets — to drive the
