@@ -26,6 +26,25 @@ const int kRunSessionLogCap = 300;
 /// collapses to at most ~60 emits/sec instead of 100+.
 const Duration kLogBatchInterval = Duration(milliseconds: 16);
 
+/// Interval of the self-driving animation ticker. While a run is in an
+/// active state ([RunStatus.validating] / [RunStatus.running]) this ticker
+/// fires a bare `notifyListeners()` purely so the indeterminate spinner /
+/// `ProgressBar` advances a frame and the log `ListView` repaints — even
+/// during long SILENT child-process pauses (`flutter pub get`,
+/// `xcodebuild` thinking) where zero log lines arrive and the v0.4.4 log
+/// batch timer therefore never fires.
+///
+/// 80 ms ≈ 12.5 fps — smooth enough for a braille spinner without burning
+/// CPU. The ticker only runs during an active run; an idle TUI (browsing
+/// categories, no lane running) schedules zero wakeups.
+const Duration kAnimationTickInterval = Duration(milliseconds: 80);
+
+/// Run statuses considered "in progress". The animation ticker runs only
+/// while the session is in one of these; reaching any other (terminal /
+/// idle / awaiting-input) status stops it.
+bool _isActiveRunStatus(RunStatus status) =>
+    status == RunStatus.validating || status == RunStatus.running;
+
 /// Per-tab run session state. Replaces the cubit's
 /// `runSessionsByActionId` map. Each [RunRoute] owns one of these and disposes
 /// it when its tab is closed.
@@ -60,9 +79,33 @@ class RunSessionController extends ChangeNotifier {
   /// pending (the next [_appendLog] call schedules one).
   Timer? _batchTimer;
 
+  /// Self-driving animation ticker. Non-null only while the run is in an
+  /// active state (see [_isActiveRunStatus]). Drives spinner / progress-bar
+  /// frames + log-list repaints during silent child-process pauses where no
+  /// log lines arrive. Started by [_syncAnimationTicker] when the session
+  /// enters an active status; cancelled when it leaves one and in [dispose].
+  Timer? _animationTimer;
+
+  /// Monotonically-increasing frame counter advanced once per animation
+  /// tick. Views observe this (via [animationFrame]) to derive the spinner
+  /// frame index, so the spinner advances off wall-clock time rather than
+  /// off rebuild count — the latter stalls when the child is silent.
+  int _animationFrame = 0;
+
+  /// Current animation frame index. Increments every [kAnimationTickInterval]
+  /// while a run is active. Stable (does not advance) while idle.
+  int get animationFrame => _animationFrame;
+
   /// Test-only hook: every `_flushPendingLogs` invocation increments this.
   /// Lets unit tests assert that 1000 rapid appends collapse to ~16 emits.
   int debugFlushCount = 0;
+
+  /// Test-only: true while the self-driving animation ticker is armed.
+  bool get debugAnimationTickerActive => _animationTimer != null;
+
+  /// Test-only: number of animation ticks fired so far. Mirrors
+  /// [animationFrame] but named for regression-test clarity.
+  int get debugAnimationTickCount => _animationFrame;
 
   /// The live child handle, set while a process is running. The prompt modal
   /// uses this to push the user's response back to the child's stdin.
@@ -83,6 +126,7 @@ class RunSessionController extends ChangeNotifier {
 
   void _emit(RunSession next) {
     _session = next;
+    _syncAnimationTicker();
     notifyListeners();
   }
 
@@ -97,6 +141,47 @@ class RunSessionController extends ChangeNotifier {
     _batchTimer?.cancel();
     _batchTimer = null;
     _session = next;
+    _syncAnimationTicker();
+    notifyListeners();
+  }
+
+  /// Start or stop the self-driving animation ticker so it is armed exactly
+  /// while the session is in an active status. Idempotent — safe to call on
+  /// every `_emit` / `_resetState`. An idle controller (no run, or a run in
+  /// a terminal state) holds no timer, so the TUI schedules zero wakeups
+  /// while the user merely browses categories.
+  void _syncAnimationTicker() {
+    if (_isActiveRunStatus(_session.status)) {
+      _startAnimationTicker();
+    } else {
+      _stopAnimationTicker();
+    }
+  }
+
+  void _startAnimationTicker() {
+    if (_animationTimer != null) return;
+    _animationTimer = Timer.periodic(kAnimationTickInterval, _onAnimationTick);
+  }
+
+  void _stopAnimationTicker() {
+    _animationTimer?.cancel();
+    _animationTimer = null;
+  }
+
+  /// Animation tick: advance the frame counter and notify listeners purely
+  /// to repaint. This fires even when ZERO log lines have arrived — that is
+  /// the whole point: it un-freezes the spinner + log list during silent
+  /// lane steps. It deliberately does NOT touch [_session]; nocterm dedupes
+  /// this `notifyListeners` with any coincident log-batch flush within the
+  /// same frame, so the two timers never fight.
+  void _onAnimationTick(Timer _) {
+    // Defensive: if the run somehow left an active state without the ticker
+    // being torn down, stop here rather than spinning forever.
+    if (!_isActiveRunStatus(_session.status)) {
+      _stopAnimationTicker();
+      return;
+    }
+    _animationFrame++;
     notifyListeners();
   }
 
@@ -414,6 +499,7 @@ class RunSessionController extends ChangeNotifier {
   void dispose() {
     _batchTimer?.cancel();
     _batchTimer = null;
+    _stopAnimationTicker();
     _pendingLogs.clear();
     super.dispose();
   }

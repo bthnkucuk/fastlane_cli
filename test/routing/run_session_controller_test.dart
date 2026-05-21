@@ -238,6 +238,173 @@ void main() {
       expect(controller.session.logs.last.message, contains('Exit code: 0'));
     });
   });
+
+  group('RunSessionController self-driving animation ticker (v0.4.6)', () {
+    test('entering an active run state starts the animation ticker', () async {
+      final temp = _ensureTempRunner();
+      addTearDown(() => temp.delete(recursive: true));
+      final fakeProcess = _FakeRunningProcess();
+      // A silent executor: emits NO log lines, just parks. This models a
+      // long quiet child step (`flutter pub get` thinking).
+      final executor = _SilentExecutor(fakeProcess: fakeProcess);
+      final env = _buildEnvironment(executor, appRootPath: temp.path);
+      final controller =
+          RunSessionController(actionId: 'noop', environment: env);
+      addTearDown(controller.dispose);
+
+      expect(controller.debugAnimationTickerActive, isFalse,
+          reason: 'ticker must be inert before a run starts');
+
+      final runFuture = controller.run(confirmed: true);
+      // The run() synchronously emits validating → running before awaiting
+      // the executor; the ticker should already be armed.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(controller.debugAnimationTickerActive, isTrue,
+          reason: 'ticker must be armed while the run is active');
+      expect(controller.session.status, RunStatus.running);
+
+      executor.complete();
+      await runFuture;
+    });
+
+    test(
+      'ticker fires notifyListeners during a SILENT run with zero logs',
+      () async {
+        final temp = _ensureTempRunner();
+        addTearDown(() => temp.delete(recursive: true));
+        final fakeProcess = _FakeRunningProcess();
+        final executor = _SilentExecutor(fakeProcess: fakeProcess);
+        final env = _buildEnvironment(executor, appRootPath: temp.path);
+        final controller =
+            RunSessionController(actionId: 'noop', environment: env);
+        addTearDown(controller.dispose);
+
+        final runFuture = controller.run(confirmed: true);
+        // Run is now active and the executor emits NOTHING — pre-v0.4.6 the
+        // log-batch timer would never fire and notifyListeners would go
+        // silent here, freezing the spinner.
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+        final frameBefore = controller.animationFrame;
+
+        // Wait ~3.5 tick intervals (80 ms each) with the child still silent.
+        await Future<void>.delayed(const Duration(milliseconds: 280));
+
+        expect(notifyCount, greaterThanOrEqualTo(2),
+            reason:
+                'animation ticker must notify listeners during a silent run; '
+                'got $notifyCount');
+        expect(controller.animationFrame, greaterThan(frameBefore),
+            reason: 'animation frame must advance off the ticker');
+
+        executor.complete();
+        await runFuture;
+      },
+    );
+
+    test('reaching a terminal state cancels the animation ticker', () async {
+      final temp = _ensureTempRunner();
+      addTearDown(() => temp.delete(recursive: true));
+      final fakeProcess = _FakeRunningProcess();
+      final executor = _SilentExecutor(fakeProcess: fakeProcess);
+      final env = _buildEnvironment(executor, appRootPath: temp.path);
+      final controller =
+          RunSessionController(actionId: 'noop', environment: env);
+      addTearDown(controller.dispose);
+
+      final runFuture = controller.run(confirmed: true);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(controller.debugAnimationTickerActive, isTrue);
+
+      executor.complete();
+      await runFuture;
+      // Run finished → status is terminal (succeeded) → ticker stopped.
+      expect(controller.session.status, RunStatus.succeeded);
+      expect(controller.debugAnimationTickerActive, isFalse,
+          reason: 'ticker must stop once the run reaches a terminal state');
+
+      // And no further frames advance after the terminal state.
+      final frameAtEnd = controller.animationFrame;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(controller.animationFrame, frameAtEnd,
+          reason: 'no ticks may fire after the run completes');
+    });
+
+    test('dispose() cancels the animation ticker', () async {
+      final temp = _ensureTempRunner();
+      addTearDown(() => temp.delete(recursive: true));
+      final fakeProcess = _FakeRunningProcess();
+      final executor = _SilentExecutor(fakeProcess: fakeProcess);
+      final env = _buildEnvironment(executor, appRootPath: temp.path);
+      final controller =
+          RunSessionController(actionId: 'noop', environment: env);
+
+      final runFuture = controller.run(confirmed: true);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(controller.debugAnimationTickerActive, isTrue);
+
+      controller.dispose();
+      expect(controller.debugAnimationTickerActive, isFalse,
+          reason: 'dispose() must cancel the ticker so it never leaks');
+
+      executor.complete();
+      await runFuture;
+    });
+
+    test('ticker stays inert while the controller is idle (no run)', () async {
+      final temp = _ensureTempRunner();
+      addTearDown(() => temp.delete(recursive: true));
+      final executor = _SilentExecutor(fakeProcess: _FakeRunningProcess());
+      final env = _buildEnvironment(executor, appRootPath: temp.path);
+      final controller =
+          RunSessionController(actionId: 'noop', environment: env);
+      addTearDown(controller.dispose);
+
+      // Never call run() — the controller sits at RunStatus.idle.
+      expect(controller.session.status, RunStatus.idle);
+      var notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      expect(controller.debugAnimationTickerActive, isFalse,
+          reason: 'an idle controller must schedule zero wakeups');
+      expect(notifyCount, 0,
+          reason: 'no notifyListeners while idle — no idle-CPU regression');
+      expect(controller.animationFrame, 0);
+    });
+  });
+}
+
+/// A test executor that emits NO log output — it just attaches the fake
+/// process and parks until `complete()` is called. Models a long SILENT
+/// child step (`flutter pub get` / `xcodebuild` thinking) which produces no
+/// stdout for many seconds. This is exactly the scenario the v0.4.6
+/// animation ticker exists to keep smooth.
+class _SilentExecutor implements CommandExecutionService {
+  _SilentExecutor({required this.fakeProcess});
+
+  final _FakeRunningProcess fakeProcess;
+  final Completer<void> _completion = Completer<void>();
+
+  void complete() {
+    if (!_completion.isCompleted) _completion.complete();
+  }
+
+  @override
+  Future<CommandExecutionResult> run(
+    CommandRequest request, {
+    required bool dryRun,
+    required void Function(CommandLogEvent event) onLog,
+    void Function(RunningProcess process)? onProcess,
+  }) async {
+    onProcess?.call(fakeProcess);
+    // Deliberately emit nothing.
+    await _completion.future;
+    return const CommandExecutionResult(exitCode: 0, wasDryRun: false);
+  }
 }
 
 /// Test executor that emits [burstSize] log lines synchronously, then parks
