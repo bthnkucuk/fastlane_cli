@@ -1104,16 +1104,27 @@ module FastlaneCliConfig
   # ---------------------------------------------------------------------------
   # An `--obfuscate --split-debug-info=<dir>` build writes Dart symbol mapping
   # files into `<dir>`. Without uploading those to Crashlytics, Dart crash
-  # stack traces stay obfuscated. This step uploads them via the Firebase CLI:
+  # stack traces stay obfuscated. On ANDROID this step uploads them via the
+  # Firebase CLI:
   #
   #   firebase crashlytics:symbols:upload --app=<FIREBASE_APP_ID> <dir>
+  #
+  # On iOS the `firebase crashlytics:symbols:upload` path is intentionally
+  # skipped — it has no working iOS code path (firebase-tools issues #5291 /
+  # #6215: the Crashlytics buildtools jar treats the Flutter
+  # `--split-debug-info` file as a native library, runs Breakpad's symbol
+  # generator over it, and exits 1). iOS Dart symbols ride inside
+  # `App.framework.dSYM` and are delivered to Crashlytics by the dSYM
+  # `upload-symbols` step the iOS lane already runs, so the firebase call is
+  # both redundant and guaranteed to fail there.
   #
   # Mirrors `upload_crashlytics_ndk_symbols`' soft-skip philosophy: it is an
   # opt-in, never-hard-fail step. Returns a short Turkish summary-marker
   # string and NEVER raises / never calls `UI.user_error!`.
   #
   # GATE: only acts when BOTH `obfuscate` AND `upload_symbols` are truthy.
-  # SOFT-SKIP markers (return value, no raise) when:
+  # iOS short-circuits to an informational marker (see above).
+  # SOFT-SKIP markers (return value, no raise) when, on ANDROID:
   #   - the `firebase` CLI is not on PATH,
   #   - the resolved split-debug-info directory is missing or empty,
   #   - no Firebase app id resolves for the platform,
@@ -1124,6 +1135,20 @@ module FastlaneCliConfig
 
     # GATE — neutral skip, do nothing.
     return "atlandı" unless obfuscate && upload
+
+    # iOS — `firebase crashlytics:symbols:upload` has no working iOS path
+    # (firebase-tools #5291 / #6215). iOS Dart symbols are carried by
+    # `App.framework.dSYM` and uploaded by the dSYM `upload-symbols` step the
+    # iOS lane already runs — so this firebase call is both redundant and
+    # guaranteed to fail. Informational skip, never shells out.
+    if platform == :ios
+      ui_important(
+        "ℹ️ iOS Dart symbolication is delivered by the dSYM `upload-symbols` " \
+        "step; `firebase crashlytics:symbols:upload` has no working iOS path " \
+        "(firebase-tools #5291 / #6215). Skipping the firebase upload."
+      )
+      return "atlandı (iOS · Dart semboller dSYM yoluyla)"
+    end
 
     unless command_available?("firebase")
       ui_important(

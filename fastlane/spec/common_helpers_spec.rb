@@ -467,6 +467,63 @@ RSpec.describe FastlaneCliConfig do
         ).to eq("atlandı (firebase symbols:upload başarısız)")
       end
     end
+
+    context "on iOS — firebase crashlytics:symbols:upload has no working iOS path" do
+      it "returns the informational marker even when obfuscate + upload_symbols are true" do
+        expect(
+          described_class.upload_flutter_symbols(
+            { obfuscate: true, upload_symbols: true },
+            platform: :ios
+          )
+        ).to eq("atlandı (iOS · Dart semboller dSYM yoluyla)")
+      end
+
+      it "never probes for the firebase CLI on iOS" do
+        expect(described_class).not_to receive(:command_available?)
+        described_class.upload_flutter_symbols(
+          { obfuscate: true, upload_symbols: true },
+          platform: :ios
+        )
+      end
+
+      it "never shells out to firebase on iOS" do
+        expect(described_class).not_to receive(:system)
+        described_class.upload_flutter_symbols(
+          {
+            obfuscate: true, upload_symbols: true,
+            firebase_app_id: "1:opt:ios:abc"
+          },
+          platform: :ios
+        )
+      end
+
+      it "still honours the obfuscate/upload_symbols gate on iOS" do
+        expect(
+          described_class.upload_flutter_symbols(
+            { upload_symbols: true }, platform: :ios
+          )
+        ).to eq("atlandı")
+      end
+    end
+
+    it "still invokes the firebase path on Android when the gate opens" do
+      Dir.mktmpdir do |tmp|
+        app_root = File.realpath(tmp)
+        symbols_dir = File.join(app_root, "build/symbols")
+        write_file(File.join(symbols_dir, "app.android-arm64.symbols"), "data")
+        allow(described_class).to receive(:command_available?).with("firebase").and_return(true)
+        expect(described_class).to receive(:system).and_return(true)
+        expect(
+          described_class.upload_flutter_symbols(
+            {
+              obfuscate: true, upload_symbols: true, app_root: app_root,
+              firebase_app_id: "1:opt:android:abc"
+            },
+            platform: :android
+          )
+        ).to eq("yüklendi (flutter symbols)")
+      end
+    end
   end
 
   describe ".capitalize_variant_segment" do
