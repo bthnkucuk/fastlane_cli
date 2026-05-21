@@ -95,35 +95,26 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # `main` is branch-protected with 4 required status checks, so the bot
-    # cannot push the badge commit directly (GH006). Open / update a PR
-    # instead — it auto-runs CI on the PR branch and is mergeable once
-    # `Analyze + Test` + the 3 Ruby legs are green.
+    # The badge is a gist-backed shields.io endpoint badge. The job writes a
+    # tiny JSON blob to a public gist (schneegans/dynamic-badges-action); it
+    # never commits to this repo and never opens a PR, so branch protection
+    # is irrelevant here. Least privilege: only needs to read the repo.
     permissions:
-      contents: write
-      pull-requests: write
-    # Serialize coverage runs so two near-simultaneous main pushes don't both
-    # try to open/update the badge PR at once. cancel-in-progress=false ensures
-    # the second run waits rather than discarding work.
-    concurrency:
-      group: coverage-badge
-      cancel-in-progress: false
+      contents: read
     env:
-      # Declared at job level so linters can resolve ${{ env.COVERAGE_PERCENT }}
-      # in the badge-PR step. The actual value is written into GITHUB_ENV by
-      # the "Update coverage badge" step.
+      # Declared at job level so linters can resolve ${{ env.COVERAGE_* }}
+      # in the badge step. The actual values are written into GITHUB_ENV by
+      # the "Compute coverage percentage" step.
       COVERAGE_PERCENT: ""
+      COVERAGE_COLOR: ""
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
       - name: Download coverage artifact
         uses: actions/download-artifact@v8
         with:
           name: lcov
           path: coverage
 
-      - name: Update coverage badge
+      - name: Compute coverage percentage
         run: |
           LCOV_INFO="coverage/lcov.info"
 
@@ -146,24 +137,26 @@ jobs:
             color="brightgreen"
           fi
 
-          new_badge="![coverage](https://img.shields.io/badge/coverage-${percent}%25-${color})"
-          sed -i "s|^!\[coverage\].*|$new_badge|" README.md
-
           echo "COVERAGE_PERCENT=$percent" >> $GITHUB_ENV
+          echo "COVERAGE_COLOR=$color" >> $GITHUB_ENV
 
-      - name: Open / update coverage badge PR
-        uses: peter-evans/create-pull-request@v7
+      # Writes {schemaVersion,label,message,color} into the gist file the
+      # README's shields.io endpoint badge points at. continue-on-error so
+      # CI stays green until the maintainer adds the GIST_TOKEN secret (a
+      # PAT with the `gist` scope) — without it this step fails by design.
+      - name: Publish coverage badge to gist
+        id: badge
+        continue-on-error: true
+        uses: schneegans/dynamic-badges-action@v1
         with:
-          commit-message: "chore: update coverage badge to ${{ env.COVERAGE_PERCENT }}%"
-          branch: chore/coverage-badge
-          delete-branch: true
-          title: "chore: bump coverage badge to ${{ env.COVERAGE_PERCENT }}%"
-          body: |
-            Auto-generated coverage badge update.
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: 0538334b34cc8408d52d5e058d12be05
+          filename: fastlane_cli-coverage.json
+          label: coverage
+          message: ${{ env.COVERAGE_PERCENT }}%
+          color: ${{ env.COVERAGE_COLOR }}
 
-            Source run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            Coverage: ${{ env.COVERAGE_PERCENT }}%
-          base: main
-          labels: ci, coverage
-          author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
-          committer: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+      - name: Warn if badge publish failed
+        if: steps.badge.outcome == 'failure'
+        run: |
+          echo "::warning::Coverage badge gist update failed. Add a repo secret named GIST_TOKEN (a PAT with only the 'gist' scope) so this step can write to the badge gist."
