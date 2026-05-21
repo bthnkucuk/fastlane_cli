@@ -241,12 +241,38 @@ The Dart symbol upload is wired into the Android `internal_testing` /
 `production` lanes and the iOS `test_flight` lane, via the shared
 `FastlaneCliConfig.upload_flutter_symbols(options, platform:)` method.
 
+### iOS vs Android — the `firebase` upload is Android-only
+
+`firebase crashlytics:symbols:upload` is **only used on Android**. Since
+v0.14.0, `upload_flutter_symbols` short-circuits on iOS: it early-returns
+the informational marker `Dart symbols : atlandı (iOS · Dart semboller dSYM
+yoluyla)` and **never shells out to `firebase`**.
+
+Why: `firebase crashlytics:symbols:upload` has **no working iOS code path**
+(firebase-tools issues [#5291](https://github.com/firebase/firebase-tools/issues/5291)
+and [#6215](https://github.com/firebase/firebase-tools/issues/6215) — "works
+for Android, fails for iOS"). The Crashlytics buildtools jar treats the
+Flutter `--split-debug-info` file (`app.ios-arm64.symbols`) as a native
+library, runs Breakpad's symbol generator over it, and exits 1
+(`java.io.IOException: Breakpad symbol generation failed (exit=1)`).
+Updating firebase-tools does not fix it.
+
+On iOS, Flutter Dart symbols are carried by `App.framework.dSYM` and
+delivered to Crashlytics by the dSYM `upload-symbols` step the iOS
+`test_flight` lane already runs — so the `firebase` call is both redundant
+and guaranteed to fail. As a corollary, `obfuscate` on iOS gives **no**
+Crashlytics symbolication benefit: it strips Dart symbols out of the dSYM
+with no working iOS re-ingestion path. Obfuscation's symbol-upload value is
+Android-only.
+
 ### Gate — `obfuscate` AND `upload_symbols`
 
 It acts only when **BOTH** `obfuscate: "true"` **AND** `upload_symbols: "true"`
 are set (the same `upload_symbols` flag that drives dSYM / NDK upload). If
 either is off it is a neutral no-op (`Dart symbols : atlandı`). This makes
 sense: there are no Dart symbols to upload unless the build was obfuscated.
+The gate is evaluated before the iOS short-circuit, so on iOS with the gate
+closed you still see the plain `atlandı`.
 
 ### Prerequisites
 
@@ -260,10 +286,10 @@ export FIREBASE_APP_ID_ANDROID="1:1234567890:android:abcdef"
 export FIREBASE_APP_ID_IOS="1:1234567890:ios:abcdef"
 ```
 
-### The command
+### The command (Android only)
 
 On the happy path the helper runs, from the app root, wrapped in
-`with_clean_subprocess_env`:
+`with_clean_subprocess_env` — **only on Android**:
 
 ```sh
 firebase crashlytics:symbols:upload --app=<FIREBASE_APP_ID> <split-debug-info-dir>
@@ -273,12 +299,16 @@ firebase crashlytics:symbols:upload --app=<FIREBASE_APP_ID> <split-debug-info-di
 (the `split_debug_info` option, default `build/symbols`) — `flutter_build_flags`
 and `upload_flutter_symbols` share one resolver so they never diverge.
 
+On iOS the helper never reaches this command — see "iOS vs Android" above.
+
 ### Soft-skip behaviour
 
-Like the dSYM / NDK steps, this never hard-fails the release. It soft-skips
-(and the build + store upload still succeed) when the `firebase` CLI is
-absent, the split-debug-info directory is missing/empty, no Firebase app id
-resolves, or the `firebase` upload exits non-zero.
+Like the dSYM / NDK steps, this never hard-fails the release. On Android it
+soft-skips (and the build + store upload still succeed) when the `firebase`
+CLI is absent, the split-debug-info directory is missing/empty, no Firebase
+app id resolves, or the `firebase` upload exits non-zero. On iOS it always
+returns the informational `atlandı (iOS · Dart semboller dSYM yoluyla)`
+marker without shelling out.
 
 ## After invoking
 
@@ -313,16 +343,22 @@ and the box lists the script, the script source, the plist, and the dSYM paths u
 
 - `Dart symbols : atlandı` — `obfuscate` and/or `upload_symbols` was false
   (the gate did not open). No Dart symbols to upload.
-- `Dart symbols : atlandı (firebase CLI yok)` — the gate opened but the
-  `firebase` CLI is not on PATH.
-- `Dart symbols : atlandı (split-debug-info dizini boş)` — the
+- `Dart symbols : atlandı (iOS · Dart semboller dSYM yoluyla)` — **iOS
+  only**, informational (not a failure). The gate opened, but on iOS the
+  `firebase` upload is intentionally skipped: Dart symbols ride in
+  `App.framework.dSYM` and are uploaded by the dSYM `upload-symbols` step.
+- `Dart symbols : atlandı (firebase CLI yok)` — **Android**: the gate
+  opened but the `firebase` CLI is not on PATH.
+- `Dart symbols : atlandı (split-debug-info dizini boş)` — **Android**: the
   `--split-debug-info` directory is missing or empty (no obfuscated build
   artefacts found).
-- `Dart symbols : atlandı (Firebase app id yok)` — no `firebase_app_id`
-  option and no `FIREBASE_APP_ID_ANDROID` / `FIREBASE_APP_ID_IOS` env var.
-- `Dart symbols : atlandı (firebase symbols:upload başarısız)` — the
-  `firebase crashlytics:symbols:upload` invocation exited non-zero.
-- `Dart symbols : yüklendi (flutter symbols)` — upload succeeded.
+- `Dart symbols : atlandı (Firebase app id yok)` — **Android**: no
+  `firebase_app_id` option and no `FIREBASE_APP_ID_ANDROID` env var.
+- `Dart symbols : atlandı (firebase symbols:upload başarısız)` —
+  **Android**: the `firebase crashlytics:symbols:upload` invocation exited
+  non-zero.
+- `Dart symbols : yüklendi (flutter symbols)` — **Android**: upload
+  succeeded.
 
 ## Troubleshooting
 
