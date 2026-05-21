@@ -119,6 +119,21 @@ Do NOT:
 - Re-implement the `lib/main_<flavor>.dart` convention in a new place — extend
   the helper instead so every lane benefits.
 
+## Related build options (v0.10.0)
+
+Beyond `target` / `flavor`, `FastlaneCliConfig.flutter_build_flags` resolves
+three more build knobs from the same option chain (per-action `command.options`,
+`default_options`, or `--option key=value`):
+
+| Option            | Default        | Effect on the `flutter build` invocation                                  |
+| ----------------- | -------------- | ------------------------------------------------------------------------- |
+| `obfuscate`       | `false`        | Adds `--obfuscate --split-debug-info=<dir>` (Dart code obfuscation).      |
+| `split_debug_info`| `build/symbols`| The `<dir>` obfuscation symbols are written to. Shared with the Dart symbol upload step (see `fastlane-crashlytics-symbols`). |
+| `split_per_abi`   | `false`        | Adds `--split-per-abi` — **APK builds only** (ignored for appbundle/ipa). |
+
+`obfuscate` pairs with `upload_symbols` to drive the Flutter Dart-symbol
+upload — both must be truthy for symbols to land in Crashlytics.
+
 ## Surfacing the resolved values
 
 If a lane prints a summary box (see [[fastlane-summary-log]]), include the
@@ -135,9 +150,11 @@ to the default.
 
 ## Reference
 
-- Helper: [common_helpers.rb:191-204](../../fastlane/common_helpers.rb#L191-L204) (`flutter_target`),
-  [common_helpers.rb:110-118](../../fastlane/common_helpers.rb#L110-L118) (`resolve_flavor`).
-- Lane example (iOS build via `--target`): [fastlane/Fastfile:228-238](../../fastlane/Fastfile#L228-L238).
-- Lane example (Android appbundle): [fastlane/android/Fastfile:150-154](../../fastlane/android/Fastfile#L150-L154).
+- Helper: [`common_helpers.rb`](../../fastlane/common_helpers.rb) — the
+  `FastlaneCliConfig.flutter_target` and `FastlaneCliConfig.resolve_flavor`
+  methods (grep the file by name; line numbers drift between releases).
+- Lane example: [`fastlane/Fastfile`](../../fastlane/Fastfile) (iOS build via
+  `--target`), [`fastlane/android/Fastfile`](../../fastlane/android/Fastfile)
+  (Android appbundle).
 - Related skill: [[fastlane-summary-log]] — exposes resolved values to the user.
 - Repo rules: [CLAUDE.md](../../CLAUDE.md) §5.2 (no app-specific values), §5.3 (env-driven config).

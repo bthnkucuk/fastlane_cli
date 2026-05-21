@@ -44,11 +44,12 @@ upload see [`fastlane-testflight`](../fastlane-testflight/SKILL.md).
 
 ## Non-interactive override (CI / scripting)
 
-Pass `build_number:` to skip the list + prompt entirely:
+Pass `build_number` to skip the list + prompt entirely. The `--option`
+separator is `=`:
 
 ```sh
 fastlane_cli run ios_promote_to_app_store --profile <path> \
-  --option build_number:404
+  --option build_number=404
 ```
 
 The lane still best-effort enriches the build's version/state for the
@@ -72,8 +73,8 @@ store listing. Use `ios_update_metadata` for metadata changes, or the
 - App Store Connect API key — `APP_STORE_CONNECT_API_KEY_JSON_PATH`, or the
   `APP_STORE_CONNECT_API_KEY_ID` + `_ISSUER_ID` + `_FILEPATH` triple. A
   `FASTLANE_SESSION` cookie is NOT accepted for this lane.
-- Bundle identifier via `app.ios.app_identifier` in `profile.yaml` or
-  `IOS_APP_IDENTIFIER` / `FASTLANE_APP_IDENTIFIER` env.
+- Bundle identifier via `app.bundle_id` in `profile.yaml` (flat key in the
+  `app:` block) or `IOS_APP_IDENTIFIER` / `FASTLANE_APP_IDENTIFIER` env.
 - The target build must already be uploaded to TestFlight and finished
   processing (`VALID`).
 
@@ -82,7 +83,7 @@ store listing. Use `ios_update_metadata` for metadata changes, or the
 ```sh
 fastlane_cli run ios_promote_to_app_store --profile <path>           # interactive picker
 fastlane_cli run ios_promote_to_app_store --profile <path> \
-  --option build_number:404                                          # non-interactive
+  --option build_number=404                                          # non-interactive
 fastlane_cli run ios_promote_to_app_store --profile <path> --dry-run # print, don't run
 ```
 

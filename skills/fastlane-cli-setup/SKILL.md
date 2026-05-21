@@ -30,10 +30,25 @@ TODO marker.
 
 ## Step 2 — Generate `profile.yaml`
 
-Prefer the future `fastlane_cli init` subcommand (post-1.0, see
-[ROADMAP.md](../../ROADMAP.md) §7). When that is unavailable, write the file
-directly with this minimal template (omit blocks for platforms the user
-isn't shipping):
+Prefer the `fastlane_cli init` subcommand — it scaffolds a `profile.yaml` in
+the current directory:
+
+```sh
+cd /path/to/your-flutter-app
+fastlane_cli init --app-name MyApp --platform both   # ios | android | both
+# already have a profile.yaml? overwrite it explicitly:
+fastlane_cli init --app-name MyApp --force
+```
+
+`init` writes a minimal `profile.yaml` (with `app.name`, `app.root_path`,
+`app.fastlane_path`, `default_locale`, and commented credential hints for the
+chosen platform) next to `pubspec.yaml`. It refuses to clobber an existing
+`profile.yaml` unless `--force` is passed (exit code 73 otherwise). Then edit
+`app.root_path` to point at the Flutter project root and add the optional
+`package_name` / `bundle_id` identity keys (see below).
+
+When you need finer control than `init` provides, write the file directly
+with this template (omit blocks for platforms the user isn't shipping):
 
 ```yaml
 # profile.yaml — merged on top of fastlane_cli's bundled profile.base.yaml.
@@ -79,10 +94,11 @@ profile supplies every lane; `default_options` pins `flavor` + `target` on all
 of them at once.
 
 Notes:
-- `fastlane_runner_path:` is intentionally **not** in the template. Until
-  [ROADMAP.md](../../ROADMAP.md) §1 lands it is required and must point at
-  an absolute path to fastlane_cli's `fastlane/` folder. After that ships
-  the CLI auto-resolves it.
+- `fastlane_runner_path:` is intentionally **not** in the template. The CLI
+  auto-resolves the bundled runner from the installed `fastlane_cli` binary
+  (`RunnerResolver`). Only set `app.fastlane_runner_path` to override that —
+  e.g. when developing fastlane_cli itself against a real app profile (see
+  `fastlane-cli-layout`).
 - Merge rules (recap):
   - `app:` deep-merges (app wins per key).
   - Scalars (`default_locale`, ...) — app wins if set.
@@ -170,13 +186,38 @@ fastlane_cli doctor --profile ./fastlane/profile.yaml
 fastlane_cli list --json --profile ./fastlane/profile.yaml
 ```
 
-If both succeed, the user is ready. Hand off to `fastlane-cli-run` for "how do
-I trigger a lane" requests, or to `fastlane-testflight` /
+`fastlane_cli list` emits a flat JSON array of `{id, title, description,
+category}` objects with `--json`, or a plain `id  [category]  title` listing
+without it. Use `--category <id>` to filter.
+
+## Step 5 — Optional terminal niceties
+
+Shell completion — covers the static subcommands, and `run <TAB>` completes
+action ids when a profile is discoverable:
+
+```sh
+fastlane_cli completion zsh  >> ~/.zshrc           # or: bash | fish
+fastlane_cli completion bash >> ~/.bashrc
+fastlane_cli completion fish > ~/.config/fish/completions/fastlane_cli.fish
+```
+
+Install the bundled Claude Code / Cursor skills into the project (or globally)
+so an assistant working in the repo has this guidance on hand:
+
+```sh
+fastlane_cli skills install            # → <cwd>/.claude/skills/ (project)
+fastlane_cli skills install --global   # → ~/.claude/skills/
+fastlane_cli skills install --dry-run  # preview without writing
+fastlane_cli skills install --force    # overwrite existing skill dirs
+```
+
+If all of the above succeed, the user is ready. Hand off to `fastlane-cli-run`
+for "how do I trigger a lane" requests, or to `fastlane-testflight` /
 `fastlane-play-internal` for first-release flows.
 
 ## Do not
 
 - Hardcode app names, bundle ids, or any API keys into this repo.
-- Add a `fastlane_runner_path` to the profile unless the user is on
-  pre-ROADMAP §1 builds and explicitly needs it.
+- Add a `fastlane_runner_path` to the profile — the CLI auto-resolves the
+  bundled runner. Only set it to point at a non-default runner build.
 - Commit `.env` / API key JSON / `.p8` files to git.

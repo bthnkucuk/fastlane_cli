@@ -26,14 +26,24 @@ This is read by `FastlaneCliConfig.absolute_json_key` and passed to every
 
 ### 2. Package name
 
-Either declared in `app.android.package_name` of `profile.yaml`, or via
-env:
+Either declared as `app.package_name` in `profile.yaml` (a flat key inside
+the `app:` block — *not* nested under `app.android`), or via env:
+
+```yaml
+app:
+  name: MyApp
+  root_path: .
+  package_name: com.example.myapp   # Android applicationId
+```
 
 ```sh
-export ANDROID_PACKAGE_NAME="com.example.app"
+export ANDROID_PACKAGE_NAME="com.example.myapp"
 # or, if iOS + Android share the id:
-export FASTLANE_APP_IDENTIFIER="com.example.app"
+export FASTLANE_APP_IDENTIFIER="com.example.myapp"
 ```
+
+Option precedence (lowest → highest): `app:` block identity <
+`default_options` < per-action `command.options` < `--option` flag.
 
 ### 3. Flutter + Android signing
 
@@ -42,19 +52,23 @@ AAB at `build/app/outputs/bundle/release/app-release.aab` (or
 `app-<flavor>-release.aab` for flavored projects). fastlane_cli doesn't
 manage `key.properties`.
 
-### 4. Crashlytics symbol upload — not wired
+### 4. Crashlytics symbol upload — optional
 
-**This repo does not invoke `uploadCrashlyticsMappingFile<Variant>` or
-`uploadCrashlyticsSymbolFile<Variant>` from any Android lane.** R8 mapping
-files may still reach Firebase as a side-effect of the Crashlytics Gradle
-plugin (`mappingFileUploadEnabled = true` default) during
-`flutter build appbundle --release` — that path is outside fastlane_cli.
-Native (NDK) crash symbolication has no automatic path.
+- **R8 / Kotlin mapping** — uploaded automatically by the Firebase
+  Crashlytics Gradle plugin (`mappingFileUploadEnabled = true` default)
+  during `flutter build appbundle --release`. fastlane_cli does nothing for
+  it.
+- **NDK native symbols** — wired since v0.9.0. The `internal_testing` /
+  `production` Android lanes run the `uploadCrashlyticsSymbolFile<Flavor>Release`
+  Gradle task after the AAB build when `upload_symbols: "true"` is set. App
+  prerequisite: `firebaseCrashlytics { nativeSymbolUploadEnabled = true }` in
+  `android/app/build.gradle.kts`.
+- **Flutter Dart-obfuscation symbols** — wired since v0.11.0 via
+  `firebase crashlytics:symbols:upload`, gated on BOTH `obfuscate` and
+  `upload_symbols` being truthy.
 
-If the user explicitly asks for Android Crashlytics symbol upload via
-fastlane_cli, do **not** invent an action id — hand off to
-[`fastlane-crashlytics-symbols`](../fastlane-crashlytics-symbols/SKILL.md)
-which documents the gap and the lane-extension shape.
+For the env vars, the `upload_symbols` flag wiring, and soft-skip behaviour,
+hand off to [`fastlane-crashlytics-symbols`](../fastlane-crashlytics-symbols/SKILL.md).
 
 ## Choose the action
 

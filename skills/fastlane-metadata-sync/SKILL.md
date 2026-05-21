@@ -56,9 +56,11 @@ screenshots under `$IOS_SCREENSHOTS_PATH`, promotional metadata under
 
 ## Confirm before destructive pulls
 
-The `*_download_*` and `*_download_store_listing` actions are flagged
+`android_download_store_listing`, `ios_download_metadata`,
+`ios_download_screenshots`, and `ios_download_app_privacy` are flagged
 `requires_overwrite_confirmation: true` — they overwrite local files that may
-not be in git yet. Before running, advise the user to:
+not be in git yet. `fastlane_cli run` is headless and does **not** prompt, so
+before running advise the user to:
 
 1. Commit / stash current `fastlane/metadata/` and `fastlane/screenshots/`.
 2. Run the download.
@@ -71,6 +73,20 @@ demo account) ships with placeholder values. If a per-app profile doesn't
 override these, the user must override them in their own
 `profile.yaml` or in the `fastlane/metadata/review_information/` files
 before any App Store upload.
+
+## Invocation (headless)
+
+All metadata actions run through `fastlane_cli run <action-id>` — no TUI
+needed:
+
+```sh
+fastlane_cli run ios_download_metadata --profile <path>
+fastlane_cli run ios_update_metadata --profile <path> --dry-run   # preview
+fastlane_cli run android_update_metadata_only                     # auto-resolve profile
+```
+
+`--profile` is optional when the profile is discoverable by walk-up. Add
+`--dry-run` to print the resolved fastlane command without spawning it.
 
 ## Recommended workflow
 

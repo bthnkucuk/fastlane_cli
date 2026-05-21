@@ -35,14 +35,24 @@ A `FASTLANE_SESSION` cookie also works but expires; API key is preferred.
 
 ### 2. Bundle identifier
 
-Either declared in `app.ios.app_identifier` of `profile.yaml`, or via
-env:
+Either declared as `app.bundle_id` in `profile.yaml` (a flat key inside the
+`app:` block — *not* nested under `app.ios`), or via env:
+
+```yaml
+app:
+  name: MyApp
+  root_path: .
+  bundle_id: com.example.myapp   # iOS bundle id
+```
 
 ```sh
-export IOS_APP_IDENTIFIER="com.example.app"
+export IOS_APP_IDENTIFIER="com.example.myapp"
 # or, if iOS + Android share an id:
-export FASTLANE_APP_IDENTIFIER="com.example.app"
+export FASTLANE_APP_IDENTIFIER="com.example.myapp"
 ```
+
+Option precedence (lowest → highest): `app:` block identity <
+`default_options` < per-action `command.options` < `--option` flag.
 
 ### 3. Xcode + signing
 
@@ -50,14 +60,18 @@ Xcode + a valid signing setup (match / manual) must already work locally —
 fastlane_cli doesn't manage signing. Confirm `xcodebuild -version` returns a
 modern version.
 
-### 4. Crashlytics dSYM upload (optional)
+### 4. Crashlytics symbol upload (optional)
 
 The `test_flight` lane has an opt-in `upload_symbols` flag (default `false`)
-that pushes dSYMs to Firebase Crashlytics right after the TestFlight upload
-succeeds. When the user asks for symbolicated production crashes, hand off
-to [`fastlane-crashlytics-symbols`](../fastlane-crashlytics-symbols/SKILL.md)
-for the env vars, profile-override pattern, and the standalone
-`upload_dsyms` lane.
+that, after the TestFlight upload succeeds, pushes dSYMs to Firebase
+Crashlytics (zero-config auto-discovery since v0.8.0) and — when the build
+was also obfuscated — Flutter Dart-obfuscation symbols (since v0.11.0). The
+same flag drives Android NDK symbols on the `internal_testing` / `production`
+lanes. Enable it per-invocation with `--option upload_symbols=true` or pin it
+in `default_options`. When the user asks for symbolicated production crashes,
+hand off to [`fastlane-crashlytics-symbols`](../fastlane-crashlytics-symbols/SKILL.md)
+for the env vars, profile-override pattern, and the standalone `upload_dsyms`
+lane.
 
 ## Choose the action
 

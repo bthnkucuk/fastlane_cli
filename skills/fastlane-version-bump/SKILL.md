@@ -103,9 +103,12 @@ lane's summary box — quote that, don't reverse-engineer it.
 
 ### Confirmation
 
-All five mutating actions have `requires_confirmation: true` (except the
-`no_bump` variants, which only deploy). Surface that the user is about to
-write to remote store tracks before running.
+In `profile.base.yaml`, `android_internal_bump_deploy` and
+`ios_internal_bump_deploy` carry `requires_confirmation: true`; the top-level
+`internal_test` and the two `*_no_bump_deploy` variants do **not**. Either
+way, `fastlane_cli run` is headless and never prompts — so always surface to
+the user that a bump action writes to remote store tracks (and mutates
+`pubspec.yaml`) before running it.
 
 ## When the user only wants to set a specific value
 

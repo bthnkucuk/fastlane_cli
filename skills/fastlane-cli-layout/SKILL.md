@@ -38,8 +38,8 @@ relative path in the profile, plus `$FASTLANE_APP_ROOT` for lanes.
 Default: `"fastlane"`, resolved relative to `root_path`. Determines where
 the app's fastlane data lives — becomes `$FASTLANE_ROOT` for lanes, used to
 find `metadata/`, `defaults/`, `.env`. Code path:
-[`profile_loader.dart:47`](../../lib/src/services/profile_loader.dart) and
-[`command_builder.dart:89`](../../lib/src/services/command_builder.dart).
+[`profile_loader.dart`](../../lib/src/services/profile_loader.dart) and
+[`command_builder.dart`](../../lib/src/services/command_builder.dart).
 
 | Scenario                                                | `fastlane_path` value           |
 | ------------------------------------------------------- | ------------------------------- |
@@ -91,8 +91,15 @@ When discovery happens via #1-dir, #2-dir, or #3, the CLI prints
 `discovered: <abs path>` on stderr. Profile contents are never logged.
 
 When none of the four resolve, the CLI raises
-`ProfileResolutionException` with all four attempts listed and a remediation
-block.
+`ProfileResolutionException` (exit code 66 for the `run` / `list` / `doctor`
+subcommands) with all four attempts listed and a remediation block.
+
+**Legacy file name** — the file was renamed `cli_profile.yaml` →
+`profile.yaml` in v0.10.0. The resolver still accepts a `cli_profile.yaml`
+at every step as a deprecated fallback, printing a one-time
+`⚠️  cli_profile.yaml is deprecated — rename it to profile.yaml` warning on
+stderr. Rename it to silence the warning; do not rely on the legacy name in
+new setups.
 
 ## Decision tree — pick the right fix
 

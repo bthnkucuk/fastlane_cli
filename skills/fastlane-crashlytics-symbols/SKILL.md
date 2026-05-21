@@ -90,6 +90,18 @@ The general `internal_test` action also drives the Android leg
 (`android internal_testing`); `upload_symbols` is **also honoured there** —
 the same flag triggers Android NDK symbol upload (see the Android section).
 
+For a one-off run without editing the profile, pass the flag straight on the
+command line — `--option` uses `=` as the separator:
+
+```sh
+fastlane_cli run ios_test_flight --option upload_symbols=true
+fastlane_cli run internal_test --option upload_symbols=true --option obfuscate=true
+```
+
+Persist it across runs by adding `upload_symbols: "true"` to `default_options`
+in the consumer `profile.yaml` — that enables symbol upload on both platforms
+at once.
+
 Because base actions merge by `id` (full-replace), enabling this in a
 consumer profile means copying each action's full block from
 `fastlane/profile.base.yaml` and adding the `upload_symbols` option:
