@@ -35,6 +35,15 @@ dart run bin/fastlane_cli.dart --profile /abs/path/to/profile.yaml
 
 Toolchain is FVM-pinned ([`.fvmrc`](.fvmrc)); install [direnv](https://direnv.net/) for project-scoped `dart` on PATH ([`.envrc`](.envrc) adds the FVM Dart SDK). Without direnv, prefix commands with `fvm dart …`.
 
+Contributors: this is a public repo, so activate the pre-push leak guard once per clone (worktrees included):
+
+```bash
+git config core.hooksPath .githooks
+cp .githooks/blocklist.example .githooks/blocklist   # gitignored — add your forbidden brand/PII terms
+```
+
+It blocks pushing credential files (`.env`, `*.p8`, `*service-account*.json`, `GoogleService-Info.plist`), real phone numbers, and any brand/personal names listed in your local `.githooks/blocklist`. Override a false positive with `git push --no-verify`. See CLAUDE.md §6.2.
+
 Requirements:
 
 - Dart SDK ≥ 3.11.0

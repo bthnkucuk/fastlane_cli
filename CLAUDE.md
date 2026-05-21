@@ -285,6 +285,45 @@ maintainer's working tree — that path is closed by branch protection.
 
 ---
 
+## 6.2 Pre-push leak guard
+
+This is a PUBLIC repo and PII has leaked before. A versioned `pre-push` hook
+(`.githooks/pre-push`) scans every commit being pushed and **blocks the push**
+(`exit 1`) when it finds:
+
+- **Credential files** entering the changeset — `.env` / `.env.<anything>`
+  (but `*.env.example` is allowed), any `*.p8`, any `*service-account*.json`,
+  any `GoogleService-Info.plist`.
+- **Real phone numbers** — `+90XXXXXXXX` (the `+10000000000` placeholder is
+  not matched).
+- **Forbidden substrings** — consumer brand names, internal codenames,
+  personal names, emails, etc.
+
+The brand/name blocklist is **NOT hardcoded** — it lives in a gitignored
+local file `.githooks/blocklist`, one term per line (`#` lines are comments).
+Keeping it external is deliberate: a hardcoded list in this public repo would
+itself leak the very names it guards against. Each contributor populates it:
+
+```sh
+cp .githooks/blocklist.example .githooks/blocklist   # then edit in real terms
+```
+
+If `.githooks/blocklist` is absent, the hook still runs the credential-file +
+phone-number checks (those are universal) and just skips brand-name scanning,
+printing a one-line stderr note.
+
+**One-time activation, required per clone (worktrees included):**
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`fastlane/vendor/` is excluded from scanning. Override the guard for a genuine
+false positive with `git push --no-verify` (you then own what lands in the
+public history).
+
+---
+
 ## 7. When in doubt
 
 - Inspect the in-tree examples — `fastlane/Fastfile` `get_version_data` is the
