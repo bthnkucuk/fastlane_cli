@@ -54,13 +54,26 @@ app:
 #   - ios_test_flight
 #   - android_internal_testing
 
+# default_options: applied underneath EVERY lane's command.options. Best knob
+# for a per-flavor profile — e.g. a multi-flavor app whose entry point is
+# lib/main_<flavor>.dart. Per-action options and `--option` still win on top.
+# default_options:
+#   flavor: <flavor>
+#   target: lib/main_<flavor>.dart
+
 # Action / category overrides: declare by id to replace the base entry; new
-# ids append. See fastlane/cli_profile.base.yaml in fastlane_cli for the
-# canonical list of base actions.
+# ids append. Only needed when ONE lane needs a value different from the
+# profile-wide default_options. See fastlane/cli_profile.base.yaml in
+# fastlane_cli for the canonical list of base actions.
 # actions:
 #   - id: <id>
 #     ...
 ```
+
+For a multi-flavor app, the cleanest layout is one profile **per flavor**,
+each just `app:` + `default_options:` — no `actions:` block at all. The base
+profile supplies every lane; `default_options` pins `flavor` + `target` on all
+of them at once.
 
 Notes:
 - `fastlane_runner_path:` is intentionally **not** in the template. Until
@@ -72,6 +85,8 @@ Notes:
   - Scalars (`default_locale`, ...) — app wins if set.
   - `supported_locales` / `shortcuts` — full replacement when set.
   - `categories` / `actions` — merged by `id`.
+  - `default_options` — deep-merges (app wins per key), then folds underneath
+    every `fastlane`-action's `command.options` (per-action keys win).
 
 ## Step 3 — Credential env vars
 

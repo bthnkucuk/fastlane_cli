@@ -58,17 +58,38 @@ Recommend in this order, falling back if a prerequisite is missing:
 1. **Flavor convention** (preferred) — only if the app actually uses a
    `--flavor` *and* its entry file matches the `lib/main_<flavor>.dart`
    convention. One knob, two effects.
-2. **Profile-level option** in the consumer's `cli_profile.yaml` — when the
-   entry should always be the same for that app:
+2. **`default_options` in the consumer's `cli_profile.yaml`** — the cleanest
+   profile-level knob when the entry should always be the same for that app
+   (e.g. a dedicated per-flavor profile). One top-level map applies to
+   **every** lane — no need to re-declare each base action:
+   ```yaml
+   app:
+     name: narravo
+     root_path: ..
+
+   default_options:
+     flavor: narravo
+     target: lib/main_narravo.dart
+   ```
+   `default_options` is a sibling of `app` / `actions` / `categories` /
+   `shortcuts`. It is folded underneath every `fastlane`-action's
+   `command.options` at profile-load time; a per-action option of the same
+   name still wins. This replaces the old "re-declare each action with the
+   same `id` plus `options: {flavor, target}`" boilerplate — a per-flavor
+   profile collapses to just `app:` + `default_options:`.
+
+   Use a **per-action** `options:` override only when a *single* lane needs a
+   different value than the profile-wide default:
    ```yaml
    actions:
      - id: internal_test
        options:
-         target: lib/main_narravo.dart
-         flavor: narravo
+         target: lib/main_other.dart   # overrides default_options for this lane
    ```
 3. **Env var** — for shell/CI scoping without editing the profile.
-4. **Per-invocation option** — one-off override.
+4. **Per-invocation option** — one-off override (`fastlane_cli run … --option
+   target=lib/main_x.dart`); wins over both `default_options` and per-action
+   `command.options`.
 
 Reach for `dependency_overrides`-style hacks (hardcoding into the Fastfile)
 NEVER — see §"No app-specific values" in [CLAUDE.md](../../CLAUDE.md).
