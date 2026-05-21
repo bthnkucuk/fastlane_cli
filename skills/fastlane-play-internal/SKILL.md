@@ -42,6 +42,20 @@ AAB at `build/app/outputs/bundle/release/app-release.aab` (or
 `app-<flavor>-release.aab` for flavored projects). fastlane_cli doesn't
 manage `key.properties`.
 
+### 4. Crashlytics symbol upload — not wired
+
+**This repo does not invoke `uploadCrashlyticsMappingFile<Variant>` or
+`uploadCrashlyticsSymbolFile<Variant>` from any Android lane.** R8 mapping
+files may still reach Firebase as a side-effect of the Crashlytics Gradle
+plugin (`mappingFileUploadEnabled = true` default) during
+`flutter build appbundle --release` — that path is outside fastlane_cli.
+Native (NDK) crash symbolication has no automatic path.
+
+If the user explicitly asks for Android Crashlytics symbol upload via
+fastlane_cli, do **not** invent an action id — hand off to
+[`fastlane-crashlytics-symbols`](../fastlane-crashlytics-symbols/SKILL.md)
+which documents the gap and the lane-extension shape.
+
 ## Choose the action
 
 Discover the live set with `fastlane_cli list --json --profile <path>` first,

@@ -21,6 +21,8 @@ this directory is the canonical source.
 | [`fastlane-testflight`](fastlane-testflight/SKILL.md)                  | iOS TestFlight release flow — credentials, version handling, canonical action ids.                      |
 | [`fastlane-play-internal`](fastlane-play-internal/SKILL.md)            | Android Play Console internal-track release flow — service account, version handling, action ids.       |
 | [`fastlane-doctor`](fastlane-doctor/SKILL.md)                          | Diagnose env / credential / toolchain issues before invoking a lane.                                    |
+| [`fastlane-crashlytics-symbols`](fastlane-crashlytics-symbols/SKILL.md) | Upload iOS dSYMs to Firebase Crashlytics (opt-in TestFlight flag + standalone lane); document Android gap.|
+| [`fastlane-cli-layout`](fastlane-cli-layout/SKILL.md)                  | Non-standard fastlane folder / profile locations — `root_path`, `fastlane_path`, profile discovery.     |
 | [`fastlane-summary-log`](fastlane-summary-log/SKILL.md)                | Author the mandatory coloured summary box at the end of every user-facing lane / bridge command.        |
 
 ## Authoring rules

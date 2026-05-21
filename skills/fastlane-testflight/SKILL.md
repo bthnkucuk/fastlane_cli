@@ -46,6 +46,15 @@ Xcode + a valid signing setup (match / manual) must already work locally —
 fastlane_cli doesn't manage signing. Confirm `xcodebuild -version` returns a
 modern version.
 
+### 4. Crashlytics dSYM upload (optional)
+
+The `test_flight` lane has an opt-in `upload_symbols` flag (default `false`)
+that pushes dSYMs to Firebase Crashlytics right after the TestFlight upload
+succeeds. When the user asks for symbolicated production crashes, hand off
+to [`fastlane-crashlytics-symbols`](../fastlane-crashlytics-symbols/SKILL.md)
+for the env vars, profile-override pattern, and the standalone
+`upload_dsyms` lane.
+
 ## Choose the action
 
 Discover the live set first with `fastlane_cli list --json --profile <path>`,
