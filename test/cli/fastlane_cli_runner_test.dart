@@ -68,6 +68,100 @@ void main() {
       );
     });
   });
+
+  group('FastlaneCliRunner TUI delegation', () {
+    test('no arguments delegates to the TUI launcher', () async {
+      final launcher = _RecordingLauncher();
+      final runner = FastlaneCliRunner(launcher: launcher);
+
+      final code = await runner.run(const <String>[]);
+
+      expect(code, 0);
+      expect(launcher.runCallCount, 1);
+    });
+
+    test('only top-level flags (no subcommand) delegates to the TUI', () async {
+      final launcher = _RecordingLauncher();
+      final runner = FastlaneCliRunner(launcher: launcher);
+
+      // `--profile <p> --dry-run` is a TUI invocation: no subcommand follows.
+      final code = await runner.run(
+        const <String>['--profile', '/tmp/profile.yaml', '--dry-run'],
+      );
+
+      expect(code, 0);
+      expect(launcher.runCallCount, 1);
+      expect(
+        launcher.lastArgs,
+        const <String>['--profile', '/tmp/profile.yaml', '--dry-run'],
+      );
+    });
+
+    test('a known subcommand does NOT delegate to the TUI', () async {
+      final launcher = _RecordingLauncher();
+      final runner = FastlaneCliRunner(launcher: launcher);
+
+      // `list` with no resolvable profile fails inside the command (exit 66),
+      // but the key assertion is that the TUI launcher was never invoked.
+      final code = await runner.run(
+        const <String>['list', '--profile', '/no/such/profile.yaml'],
+      );
+
+      expect(launcher.runCallCount, 0);
+      expect(code, isNot(0));
+    });
+
+    test('everything after `--` is treated as TUI positionals', () async {
+      final launcher = _RecordingLauncher();
+      final runner = FastlaneCliRunner(launcher: launcher);
+
+      final code = await runner.run(const <String>['--', 'list']);
+
+      expect(code, 0);
+      expect(launcher.runCallCount, 1);
+    });
+
+    test('an unknown positional is treated as a TUI argument, not an error',
+        () async {
+      // `_shouldDelegateToTui` only refuses to delegate when the first
+      // positional is a *known* subcommand. An unknown positional is a
+      // legacy TUI-style argument and is handed to the launcher.
+      final launcher = _RecordingLauncher();
+      final runner = FastlaneCliRunner(launcher: launcher);
+
+      final code = await runner.run(const <String>['not-a-real-command']);
+
+      expect(code, 0);
+      expect(launcher.runCallCount, 1);
+    });
+
+    test('an unknown flag before a subcommand surfaces a UsageException → 64',
+        () async {
+      // A leading unknown flag stops TUI delegation (`_shouldDelegateToTui`
+      // returns false for unknown flags) and CommandRunner then rejects it.
+      final launcher = _RecordingLauncher();
+      final runner = FastlaneCliRunner(launcher: launcher);
+
+      final code = await runner.run(const <String>['--definitely-not-a-flag']);
+
+      expect(code, 64);
+      expect(launcher.runCallCount, 0);
+    });
+
+    test('a subcommand-level usage error exits 64', () async {
+      // `run` requires an <action-id>; passing an unknown flag to it makes
+      // CommandRunner throw a UsageException the runner maps to exit 64.
+      final launcher = _RecordingLauncher();
+      final runner = FastlaneCliRunner(launcher: launcher);
+
+      final code = await runner.run(
+        const <String>['run', '--no-such-run-flag'],
+      );
+
+      expect(code, 64);
+      expect(launcher.runCallCount, 0);
+    });
+  });
 }
 
 /// Test double: subclasses [FastlaneCliLauncher] so we can verify the runner
@@ -77,10 +171,12 @@ class _RecordingLauncher extends FastlaneCliLauncher {
   _RecordingLauncher();
 
   int runCallCount = 0;
+  List<String>? lastArgs;
 
   @override
   Future<int> run(List<String> arguments) async {
     runCallCount++;
+    lastArgs = arguments;
     return 0;
   }
 }

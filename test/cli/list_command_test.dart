@@ -97,6 +97,65 @@ void main() {
       expect(result.exit, 0);
       expect(result.stdout, contains('No actions in category "unknown"'));
     });
+
+    test('a profile with no actions prints "No actions in profile."',
+        () async {
+      final emptyProfile = createTestProfile(
+        appRootPath: tempDir.path,
+        categories: const <CliCategory>[],
+        actions: const <CliAction>[],
+      );
+      final result = await runList(const <String>[], emptyProfile);
+      expect(result.exit, 0);
+      expect(result.stdout, contains('No actions in profile.'));
+    });
+
+    test('--json on an empty profile emits an empty JSON array', () async {
+      final emptyProfile = createTestProfile(
+        appRootPath: tempDir.path,
+        categories: const <CliCategory>[],
+        actions: const <CliAction>[],
+      );
+      final result = await runList(const <String>['--json'], emptyProfile);
+      expect(result.exit, 0);
+      final decoded = jsonDecode(result.stdout.trim()) as List<dynamic>;
+      expect(decoded, isEmpty);
+    });
+
+    test('an unresolvable profile exits 66 with a remediation message',
+        () async {
+      // Resolver pointed at an empty dir with no profile.yaml anywhere.
+      final emptyDir =
+          await Directory.systemTemp.createTemp('list_cmd_noprofile_');
+      addTearDown(() => emptyDir.delete(recursive: true));
+
+      final out = StringBuffer();
+      final err = StringBuffer();
+      final command = ListCommand(
+        profileLoader: _StaticLoader(buildProfile()),
+        profileResolver: ProfileResolver(
+          environment: const <String, String>{},
+          workingDirectory: emptyDir,
+        ),
+        stdoutSink: out,
+        stderrSink: err,
+      );
+      final runner = CommandRunner<int>('test', 'test')..addCommand(command);
+      final code = await runner.run(const <String>['list']);
+
+      expect(code, 66);
+      expect(err.toString(), contains('Could not locate profile.yaml'));
+    });
+
+    test('plain text mode prints the indented action description line',
+        () async {
+      // makeFastlaneAction sets a non-empty description; the profile's
+      // defaultLocale is `tr`, so the localized description ("Açıklama") is
+      // emitted on its own indented line.
+      final result = await runList(const <String>[], buildProfile());
+      expect(result.exit, 0);
+      expect(result.stdout, contains('    Açıklama'));
+    });
   });
 }
 

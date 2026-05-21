@@ -22,6 +22,23 @@ void main() {
       expect(parseLocale(''), AppLocale.tr);
       expect(parseLocale('   '), AppLocale.tr);
     });
+
+    test('trims surrounding whitespace before matching', () {
+      expect(parseLocale('  en  '), AppLocale.en);
+      expect(parseLocale('\ttr\n'), AppLocale.tr);
+    });
+
+    test(
+        'regional codes resolve to the fallback (only bare tr/en are '
+        'generated)', () {
+      // This project generates only the bare `tr` and `en` locales — no
+      // regional variants. slang's parser silently maps an unknown regional
+      // code (`en-US`, `de-DE`, …) to the base locale, so parseLocale's
+      // "real match" guard correctly rejects it and returns the fallback.
+      expect(parseLocale('en-US', fallback: AppLocale.en), AppLocale.en);
+      expect(parseLocale('en-US', fallback: AppLocale.tr), AppLocale.tr);
+      expect(parseLocale('de-DE', fallback: AppLocale.en), AppLocale.en);
+    });
   });
 
   group('ActionCommandType', () {

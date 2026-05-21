@@ -145,6 +145,70 @@ void main() {
       expect(result.exit, 0);
       expect(result.executor.invocations.single.dryRun, isTrue);
     });
+
+    test('more than one action id exits 64 without executing', () async {
+      final result = await runRun(
+        const <String>['android_version_status', 'ios_release'],
+        buildProfile(),
+      );
+      expect(result.exit, 64);
+      expect(result.executor.invocations, isEmpty);
+      expect(result.stderr, contains('Expected a single <action-id>'));
+    });
+
+    test('an unresolvable profile exits 66 with a remediation message',
+        () async {
+      final emptyDir =
+          await Directory.systemTemp.createTemp('run_cmd_noprofile_');
+      addTearDown(() => emptyDir.delete(recursive: true));
+
+      final out = StringBuffer();
+      final err = StringBuffer();
+      final executor = _FakeExecutor();
+      final command = RunCommand(
+        profileLoader: _StaticLoader(buildProfile()),
+        profileResolver: ProfileResolver(
+          environment: const <String, String>{},
+          workingDirectory: emptyDir,
+        ),
+        commandBuilder: const CommandBuilder(),
+        executionService: executor,
+        stdoutSink: out,
+        stderrSink: err,
+      );
+      final runner = CommandRunner<int>('test', 'test')..addCommand(command);
+      final code = await runner.run(
+        const <String>['run', 'android_version_status'],
+      );
+
+      expect(code, 66);
+      expect(executor.invocations, isEmpty);
+      expect(err.toString(), contains('Could not locate profile.yaml'));
+    });
+
+    test('--option with an empty key (=value) is rejected as malformed',
+        () async {
+      final result = await runRun(
+        const <String>['android_version_status', '--option', '=value'],
+        buildProfile(),
+      );
+      expect(result.exit, 64);
+      expect(result.executor.invocations, isEmpty);
+      expect(result.stderr, contains('Invalid --option'));
+    });
+
+    test('a fastlane action with no overrides is forwarded unchanged',
+        () async {
+      // The base action carries no options; without --option the request
+      // arguments are exactly the lane invocation.
+      final result = await runRun(
+        const <String>['ios_release'],
+        buildProfile(),
+      );
+      expect(result.exit, 0);
+      final request = result.executor.invocations.single.request;
+      expect(request.arguments, <String>['ios', 'release']);
+    });
   });
 }
 

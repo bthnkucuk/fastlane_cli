@@ -145,6 +145,179 @@ void main() {
       expect(result.errors.any((e) => e.contains('full_description')), isTrue);
     });
 
+    test('returns success immediately when the action has no preflight checks',
+        () async {
+      final action = makeFastlaneAction(
+        id: 'no_checks',
+        categoryId: 'general',
+        lane: 'lane',
+      );
+      final profile = createTestProfile(
+        appRootPath: '/tmp/whatever',
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'general', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final result = const PreflightValidator().validate(
+        profile: profile,
+        action: action,
+      );
+
+      expect(result.success, isTrue);
+      expect(result.errors, isEmpty);
+      expect(result.guideTopic, isNull);
+    });
+
+    test('fails when the android metadata root directory is missing entirely',
+        () async {
+      final temp =
+          await Directory.systemTemp.createTemp('fastlane_cli_android_noroot');
+      addTearDown(() => temp.delete(recursive: true));
+
+      final action = makeFastlaneAction(
+        id: 'android_noroot',
+        categoryId: 'android',
+        lane: 'lane',
+        platform: 'android',
+        preflightChecks: const <PreflightCheck>[PreflightCheck.androidMetadata],
+      );
+      final profile = createTestProfile(
+        appRootPath: temp.path,
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'android', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final result = const PreflightValidator().validate(
+        profile: profile,
+        action: action,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.guideTopic, PreflightCheck.androidMetadata.value);
+      expect(
+        result.errors.any((e) => e.contains('metadata klasörü eksik')),
+        isTrue,
+      );
+      // The checklist is always populated so the user knows what to create.
+      expect(result.checklist, isNotEmpty);
+    });
+
+    test('fails when the android metadata root has no locale directories',
+        () async {
+      final temp =
+          await Directory.systemTemp.createTemp('fastlane_cli_android_empty');
+      addTearDown(() => temp.delete(recursive: true));
+      // Root exists but is empty — no locale subdirectories.
+      Directory(p.join(temp.path, 'fastlane', 'android', 'metadata'))
+          .createSync(recursive: true);
+
+      final action = makeFastlaneAction(
+        id: 'android_empty',
+        categoryId: 'android',
+        lane: 'lane',
+        platform: 'android',
+        preflightChecks: const <PreflightCheck>[PreflightCheck.androidMetadata],
+      );
+      final profile = createTestProfile(
+        appRootPath: temp.path,
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'android', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final result = const PreflightValidator().validate(
+        profile: profile,
+        action: action,
+      );
+
+      expect(result.success, isFalse);
+      expect(
+        result.errors.any((e) => e.contains('locale klasörü bulunamadı')),
+        isTrue,
+      );
+    });
+
+    test('aggregates errors across multiple preflight checks', () async {
+      // Two checks, both failing — the validator must merge errors and keep
+      // a guide topic from the first failing check.
+      final temp =
+          await Directory.systemTemp.createTemp('fastlane_cli_multi_check');
+      addTearDown(() => temp.delete(recursive: true));
+
+      final action = makeFastlaneAction(
+        id: 'multi',
+        categoryId: 'general',
+        lane: 'lane',
+        preflightChecks: const <PreflightCheck>[
+          PreflightCheck.androidMetadata,
+          PreflightCheck.iosMetadata,
+        ],
+      );
+      final profile = createTestProfile(
+        appRootPath: temp.path,
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'general', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final result = const PreflightValidator().validate(
+        profile: profile,
+        action: action,
+      );
+
+      expect(result.success, isFalse);
+      // First failing check wins the guide topic.
+      expect(result.guideTopic, PreflightCheck.androidMetadata.value);
+      // Errors from BOTH checks are present.
+      expect(
+        result.errors.any((e) => e.contains('Android')),
+        isTrue,
+      );
+      expect(
+        result.errors.any((e) => e.toLowerCase().contains('ios')),
+        isTrue,
+      );
+      // Checklists are merged too.
+      expect(result.checklist.length, greaterThan(3));
+    });
+
+    test('android text-only fails when the metadata root is missing', () async {
+      final temp =
+          await Directory.systemTemp.createTemp('fastlane_cli_text_noroot');
+      addTearDown(() => temp.delete(recursive: true));
+
+      final action = makeFastlaneAction(
+        id: 'text_noroot',
+        categoryId: 'android',
+        lane: 'lane',
+        platform: 'android',
+        preflightChecks: const <PreflightCheck>[
+          PreflightCheck.androidMetadataTextOnly,
+        ],
+      );
+      final profile = createTestProfile(
+        appRootPath: temp.path,
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'android', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final result = const PreflightValidator().validate(
+        profile: profile,
+        action: action,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.guideTopic, PreflightCheck.androidMetadataTextOnly.value);
+    });
+
     test('passes iOS metadata when locale txt and screenshots root exist', () async {
       final temp = await Directory.systemTemp.createTemp('fastlane_cli_ios_ok');
       addTearDown(() => temp.delete(recursive: true));

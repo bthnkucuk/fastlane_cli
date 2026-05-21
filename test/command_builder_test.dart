@@ -393,6 +393,178 @@ void main() {
       expect(request.environment['FASTLANE_APP_ROOT'], temp.path);
     });
 
+    test('throws when the fastlane runner directory does not exist', () {
+      // The profile points at a runner path whose parent directory is absent.
+      // _buildFastlane must surface a FormatException naming the action.
+      final action = CliAction(
+        id: 'missing_runner',
+        categoryId: 'g',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'M',
+          AppLocale.en: 'M',
+        },
+        description: const <AppLocale, String>{},
+        command: const CliActionCommand(
+          type: ActionCommandType.fastlane,
+          lane: 'noop',
+        ),
+        preflightChecks: const <PreflightCheck>[],
+        shortcut: false,
+        requiresConfirmation: false,
+      );
+
+      final profile = createTestProfile(
+        appRootPath: '/tmp/does/not/exist/fastlane_cli_${DateTime.now().microsecondsSinceEpoch}',
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'g', actionIds: <String>[action.id]),
+        ],
+      );
+
+      expect(
+        () => const CommandBuilder(environment: <String, String>{})
+            .build(profile: profile, action: action),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('runner directory not found'),
+              contains('missing_runner'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('flutter command uses the app root as working directory', () {
+      final action = CliAction(
+        id: 'flutter_clean',
+        categoryId: 'general',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'C',
+          AppLocale.en: 'C',
+        },
+        description: const <AppLocale, String>{},
+        command: const CliActionCommand(
+          type: ActionCommandType.flutter,
+          arguments: <String>['clean'],
+        ),
+        preflightChecks: const <PreflightCheck>[],
+        shortcut: false,
+        requiresConfirmation: false,
+      );
+
+      final profile = createTestProfile(
+        appRootPath: '/tmp/some/app',
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'general', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final request = const CommandBuilder().build(profile: profile, action: action);
+      expect(request.workingDirectory, '/tmp/some/app');
+      // Non-fastlane builds carry no environment overlay.
+      expect(request.environment, isEmpty);
+    });
+
+    test('custom command uses the app root and forwards exact arguments', () {
+      final action = CliAction(
+        id: 'custom_ok',
+        categoryId: 'general',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'C',
+          AppLocale.en: 'C',
+        },
+        description: const <AppLocale, String>{},
+        command: const CliActionCommand(
+          type: ActionCommandType.custom,
+          executable: '/bin/ls',
+          arguments: <String>['-la', '/tmp'],
+        ),
+        preflightChecks: const <PreflightCheck>[],
+        shortcut: false,
+        requiresConfirmation: false,
+      );
+
+      final profile = createTestProfile(
+        appRootPath: '/tmp/app',
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'general', actionIds: <String>[action.id]),
+        ],
+      );
+
+      final request = const CommandBuilder().build(profile: profile, action: action);
+      expect(request.executable, '/bin/ls');
+      expect(request.arguments, <String>['-la', '/tmp']);
+      expect(request.workingDirectory, '/tmp/app');
+    });
+
+    test('throws when custom executable is null', () {
+      final action = CliAction(
+        id: 'custom_null',
+        categoryId: 'general',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'C',
+          AppLocale.en: 'C',
+        },
+        description: const <AppLocale, String>{},
+        command: const CliActionCommand(
+          type: ActionCommandType.custom,
+          arguments: <String>[],
+        ),
+        preflightChecks: const <PreflightCheck>[],
+        shortcut: false,
+        requiresConfirmation: false,
+      );
+
+      final profile = createTestProfile(
+        appRootPath: '/tmp/z',
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'general', actionIds: <String>[action.id]),
+        ],
+      );
+
+      expect(
+        () => const CommandBuilder().build(profile: profile, action: action),
+        throwsFormatException,
+      );
+    });
+
+    test('throws when fastlane lane is null', () {
+      final action = CliAction(
+        id: 'null_lane',
+        categoryId: 'g',
+        title: const <AppLocale, String>{
+          AppLocale.tr: 'N',
+          AppLocale.en: 'N',
+        },
+        description: const <AppLocale, String>{},
+        command: const CliActionCommand(
+          type: ActionCommandType.fastlane,
+        ),
+        preflightChecks: const <PreflightCheck>[],
+        shortcut: false,
+        requiresConfirmation: false,
+      );
+
+      final profile = createTestProfile(
+        appRootPath: '/tmp',
+        actions: <CliAction>[action],
+        categories: <CliCategory>[
+          makeCategory(id: 'g', actionIds: <String>[action.id]),
+        ],
+      );
+
+      expect(
+        () => const CommandBuilder().build(profile: profile, action: action),
+        throwsFormatException,
+      );
+    });
+
     test('throws when fastlane lane is missing', () {
       final action = CliAction(
         id: 'bad_lane',

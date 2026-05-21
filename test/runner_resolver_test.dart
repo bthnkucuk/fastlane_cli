@@ -187,5 +187,115 @@ void main() {
         ),
       );
     });
+
+    test('an empty directory (no Fastfile) does NOT satisfy resolution',
+        () async {
+      // A `fastlane/` dir without a Fastfile is unusable — the resolver must
+      // skip it and fall through to the structured StateError.
+      final temp = _tempDir('empty_dir');
+      final emptyFastlane = Directory(p.join(temp.path, 'fastlane'))
+        ..createSync(recursive: true);
+      final fakeBinary = File(p.join(temp.path, 'binary'))
+        ..writeAsStringSync('binary');
+
+      final resolver = RunnerResolver(
+        executablePath: fakeBinary.path.toString,
+        packageUriResolver: (uri) async => null,
+      );
+
+      await expectLater(
+        resolver.resolve(profileOverride: emptyFastlane.path),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
+  group('RunnerResolver.resolveSkillsDirectory', () {
+    test('returns the skills/ sibling of a resolved runner', () async {
+      final temp = _tempDir('skills_ok');
+      final repo = Directory(p.join(temp.path, 'repo'))
+        ..createSync(recursive: true);
+      _seedFastlaneDir(p.join(repo.path, 'fastlane'));
+      final skills = Directory(p.join(repo.path, 'skills'))
+        ..createSync(recursive: true);
+      final fakeBinary = File(p.join(repo.path, 'fastlane_cli'))
+        ..writeAsStringSync('binary');
+
+      final resolver = RunnerResolver(
+        executablePath: fakeBinary.path.toString,
+        packageUriResolver: (uri) async => null,
+      );
+
+      final resolved = await resolver.resolveSkillsDirectory();
+      expect(resolved, p.normalize(skills.path));
+    });
+
+    test('honours a profile override when resolving the skills sibling',
+        () async {
+      final temp = _tempDir('skills_override');
+      final repo = Directory(p.join(temp.path, 'repo'))
+        ..createSync(recursive: true);
+      final fastlane = _seedFastlaneDir(p.join(repo.path, 'fastlane'));
+      Directory(p.join(repo.path, 'skills')).createSync(recursive: true);
+
+      // Every fallback branch fails — only the override can resolve.
+      final resolver = RunnerResolver(
+        executablePath: () => p.join(temp.path, 'no-such-binary'),
+        packageUriResolver: (uri) async => null,
+      );
+
+      final resolved =
+          await resolver.resolveSkillsDirectory(profileOverride: fastlane);
+      expect(resolved, p.normalize(p.join(repo.path, 'skills')));
+    });
+
+    test('throws StateError when the runner resolves but skills/ is absent',
+        () async {
+      final temp = _tempDir('skills_missing');
+      final repo = Directory(p.join(temp.path, 'repo'))
+        ..createSync(recursive: true);
+      // Runner exists, but no sibling skills/ directory.
+      _seedFastlaneDir(p.join(repo.path, 'fastlane'));
+      final fakeBinary = File(p.join(repo.path, 'fastlane_cli'))
+        ..writeAsStringSync('binary');
+
+      final resolver = RunnerResolver(
+        executablePath: fakeBinary.path.toString,
+        packageUriResolver: (uri) async => null,
+      );
+
+      await expectLater(
+        resolver.resolveSkillsDirectory(),
+        throwsA(
+          predicate<StateError>(
+            (error) =>
+                error.message.contains('skills/ directory not found') &&
+                error.message.contains('expected:'),
+          ),
+        ),
+      );
+    });
+
+    test('propagates the runner StateError when nothing resolves', () async {
+      final temp = _tempDir('skills_no_runner');
+      final isolated = Directory(p.join(temp.path, 'isolated'))
+        ..createSync(recursive: true);
+      final fakeBinary = File(p.join(isolated.path, 'binary'))
+        ..writeAsStringSync('binary');
+
+      final resolver = RunnerResolver(
+        executablePath: fakeBinary.path.toString,
+        packageUriResolver: (uri) async => null,
+      );
+
+      await expectLater(
+        resolver.resolveSkillsDirectory(),
+        throwsA(
+          predicate<StateError>(
+            (error) => error.message.contains('fastlane runner not found'),
+          ),
+        ),
+      );
+    });
   });
 }

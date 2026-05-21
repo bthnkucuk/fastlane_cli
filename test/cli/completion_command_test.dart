@@ -124,6 +124,65 @@ void main() {
         expect(out.toString(), contains(sub));
       }
     });
+
+    test('the shell argument is matched case-insensitively (BASH → bash)',
+        () async {
+      final result =
+          await runCompletion(<String>['BASH'], profile: buildProfile());
+      expect(result.exit, 0);
+      // The bash renderer signature appears regardless of input casing.
+      expect(result.stdout, contains('complete -F _fastlane_cli'));
+    });
+
+    test('Zsh and Fish are also accepted case-insensitively', () async {
+      final zsh = await runCompletion(<String>['ZSH'], profile: buildProfile());
+      expect(zsh.exit, 0);
+      expect(zsh.stdout, contains('#compdef fastlane_cli'));
+
+      final fish =
+          await runCompletion(<String>['Fish'], profile: buildProfile());
+      expect(fish.exit, 0);
+      expect(fish.stdout, contains('__fish_use_subcommand'));
+    });
+
+    test('a malformed profile does not break completion script emission',
+        () async {
+      // A loader that throws (corrupt profile.yaml) must be swallowed — the
+      // completion script still emits, just without action ids.
+      final out = StringBuffer();
+      final command = CompletionCommand(
+        profileLoader: _ThrowingLoader(),
+        profileResolver: ProfileResolver(workingDirectory: tempDir),
+        stdoutSink: out,
+        stderrSink: StringBuffer(),
+      );
+      final runner = CommandRunner<int>('test', 'test')..addCommand(command);
+      final code = await runner.run(<String>['completion', 'bash']);
+
+      expect(code, 0);
+      for (final sub in CompletionCommand.defaultSubcommands) {
+        expect(out.toString(), contains(sub));
+      }
+    });
+
+    test('explicit subcommandNames override the default list', () async {
+      final out = StringBuffer();
+      final command = CompletionCommand(
+        subcommandNames: const <String>['alpha', 'beta'],
+        profileResolver: ProfileResolver(workingDirectory: tempDir),
+        profileLoader: _StaticLoader(buildProfile()),
+        stdoutSink: out,
+        stderrSink: StringBuffer(),
+      );
+      final runner = CommandRunner<int>('test', 'test')..addCommand(command);
+      final code = await runner.run(<String>['completion', 'fish']);
+
+      expect(code, 0);
+      expect(out.toString(), contains('alpha'));
+      expect(out.toString(), contains('beta'));
+      // Default names are NOT present when an explicit list is supplied.
+      expect(out.toString(), isNot(contains('doctor')));
+    });
   });
 }
 
@@ -134,4 +193,12 @@ class _StaticLoader extends ProfileLoader {
 
   @override
   Future<CliProfile> load(String profilePath) async => _profile;
+}
+
+class _ThrowingLoader extends ProfileLoader {
+  _ThrowingLoader();
+
+  @override
+  Future<CliProfile> load(String profilePath) async =>
+      throw const FormatException('corrupt profile.yaml');
 }
