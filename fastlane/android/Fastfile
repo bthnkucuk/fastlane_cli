@@ -1,0 +1,548 @@
+require_relative "../common_helpers"
+
+platform :android do
+  private_lane :android_package_name do |options|
+    FastlaneCliConfig.resolve_identifier(options, platform: :android)
+  end
+
+  private_lane :android_version_track do |options|
+    (options[:track] || ENV["ANDROID_VERSION_TRACK"] || "internal").to_s
+  end
+
+  private_lane :pubspec_version_info do |options|
+    pubspec_path = FastlaneCliConfig.resolve_pubspec_path(options)
+    content = File.read(pubspec_path)
+    match = content.match(/version:\s*(\d+\.\d+\.\d+)\+(\d+)/)
+    UI.user_error!("Could not parse version from #{pubspec_path}") unless match
+
+    {
+      pubspec_path: pubspec_path,
+      version_name: match[1],
+      version_code: match[2].to_i
+    }
+  end
+
+  desc "Get next version code from Google Play Console"
+  private_lane :get_next_version_code do |options|
+    package_name = android_package_name(options)
+    primary_track = android_version_track(options)
+    fallback_track = (options[:fallback_track] || ENV["ANDROID_FALLBACK_TRACK"] || "production").to_s
+    json_key = FastlaneCliConfig.absolute_json_key(options)
+
+    primary_codes = google_play_track_version_codes(
+      package_name: package_name,
+      track: primary_track,
+      json_key: json_key
+    )
+    latest_code = Array(primary_codes).map(&:to_i).max || 0
+
+    if latest_code == 0 && !fallback_track.empty? && fallback_track != primary_track
+      fallback_codes = google_play_track_version_codes(
+        package_name: package_name,
+        track: fallback_track,
+        json_key: json_key
+      )
+      latest_code = [latest_code, Array(fallback_codes).map(&:to_i).max || 0].max
+    end
+
+    next_code = latest_code + 1
+    UI.message("📱 Current version code (#{primary_track}): #{latest_code}")
+    UI.message("🚀 Next version code: #{next_code}")
+    next_code
+  end
+
+  desc "Update pubspec.yaml version code manually (Android-scoped)"
+  private_lane :update_pubspec_version do |options|
+    version_code = options[:version_code].to_i
+    UI.user_error!("version_code is required") if version_code <= 0
+
+    info = pubspec_version_info(options)
+    new_version = "#{info[:version_name]}+#{version_code}"
+
+    updated_content = File.read(info[:pubspec_path]).gsub(
+      /version:\s*\d+\.\d+\.\d+\+\d+/,
+      "version: #{new_version}"
+    )
+    File.write(info[:pubspec_path], updated_content)
+
+    UI.success(
+      "📝 Updated #{info[:pubspec_path]}: #{info[:version_name]}+#{info[:version_code]} → #{new_version}"
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "Pubspec versionCode güncellendi (Android)",
+      [
+        "Dosya     : #{info[:pubspec_path]}",
+        "Önceki    : #{info[:version_name]}+#{info[:version_code]}",
+        "Yeni      : #{new_version}",
+        "Kural     : versionName aynı kalır, versionCode = caller'dan gelen #{version_code} (genellikle Play Store'dan +1).",
+        "Yazım     : pubspec.yaml içinde 'version: X.Y.Z+N' satırı regex ile değiştirildi."
+      ]
+    )
+
+    {
+      version_name: info[:version_name],
+      version_code: version_code,
+      full_version: new_version
+    }
+  end
+
+  # Upload native (NDK) symbol files to Firebase Crashlytics so native
+  # crashes (Rust/C/C++ plugins) are symbolicated. Returns a summary-box
+  # marker string describing what happened — NEVER raises.
+  #
+  # Mirrors the iOS `test_flight` `upload_symbols` philosophy: this is a
+  # soft, opt-in, never-hard-fail step. If `upload_symbols` is false the
+  # marker is "atlandı". If the gradle task is absent (the consumer app has
+  # not applied the Crashlytics plugin / `nativeSymbolUploadEnabled` is off /
+  # the app has no native code) the gradle invocation errors — we catch it
+  # and return a soft-skip marker so the AAB build+upload still succeeds.
+  #
+  # R8/Kotlin mapping files need nothing here: the Firebase Crashlytics
+  # Gradle plugin uploads those automatically during the release build.
+  private_lane :upload_crashlytics_ndk_symbols do |options|
+    unless FastlaneCliConfig.bool_option(options, :upload_symbols, default: false)
+      next "atlandı"
+    end
+
+    flavor = FastlaneCliConfig.resolve_flavor(options)
+    task = FastlaneCliConfig.crashlytics_symbol_task(flavor: flavor, build_type: "release")
+    gradle_cmd = "./android/gradlew -p android :app:#{task} --stacktrace"
+
+    begin
+      FastlaneCliConfig.with_clean_subprocess_env do
+        sh(FastlaneCliConfig.in_app_root(gradle_cmd, options))
+      end
+      UI.success("✅ Crashlytics NDK symbols uploaded via #{task}")
+      "yüklendi (#{task})"
+    rescue => e
+      UI.important(
+        "⚠️ Crashlytics NDK symbol upload skipped: #{task} failed " \
+        "(#{e.message.to_s.lines.first.to_s.strip}). " \
+        "App likely has no native code or nativeSymbolUploadEnabled is off."
+      )
+      "atlandı (uploadCrashlyticsSymbolFile task yok / nativeSymbolUploadEnabled kapalı)"
+    end
+  end
+
+  desc "Build and distribute Android app to Firebase App Distribution"
+  lane :firebase_distribute do |options|
+    flutter_cmd = FastlaneCliConfig.flutter_command(options)
+    build_type = (options[:build_type] || "release").to_s
+    flavor = FastlaneCliConfig.resolve_flavor(options)
+    groups = options[:groups] || ENV["FIREBASE_ANDROID_GROUPS"] || "internal-testers"
+    release_notes = options[:release_notes] || "New beta build"
+    apk_path = FastlaneCliConfig.resolve_app_path(
+      options[:apk_path] || "build/app/outputs/flutter-apk/app-#{build_type}.apk",
+      options
+    )
+
+    auto_version = FastlaneCliConfig.bool_option(options, :auto_version, default: true)
+    if auto_version
+      begin
+        next_code = get_next_version_code(options)
+        update_pubspec_version(options.merge(version_code: next_code))
+      rescue => e
+        UI.important("⚠️ Auto-versioning failed: #{e.message}. Continuing.")
+      end
+    end
+
+    sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} clean", options))
+    sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options))
+
+    build_parts = ["#{flutter_cmd} build apk --#{build_type}"]
+    build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
+    build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :apk))
+    sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+
+    firebase_app_distribution(
+      app: options[:firebase_app_id] || ENV["FIREBASE_APP_ID_ANDROID"],
+      apk_path: apk_path,
+      release_notes: release_notes,
+      groups: groups,
+      firebase_cli_token: options[:firebase_cli_token] || ENV["FIREBASE_CLI_TOKEN"],
+      debug: true
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Firebase App Distribution",
+      [
+        "Flavor       : #{flavor || '(none)'}",
+        "Build type   : #{build_type}",
+        "APK          : #{apk_path}",
+        "Groups       : #{groups}",
+        "Auto version : #{auto_version}",
+        "Firebase app : #{options[:firebase_app_id] || ENV['FIREBASE_APP_ID_ANDROID'] || '(env yok)'}"
+      ]
+    )
+  end
+
+  desc "Build and deploy Android app to Google Play internal testing"
+  lane :internal_testing do |options|
+    package_name = android_package_name(options)
+    flutter_cmd = FastlaneCliConfig.flutter_command(options)
+    flavor = FastlaneCliConfig.resolve_flavor(options)
+    track = (options[:track] || ENV["ANDROID_INTERNAL_TRACK"] || "internal").to_s
+    release_status = (options[:release_status] || "completed").to_s
+    aab_path = FastlaneCliConfig.android_aab_path(options)
+
+    build_parts = ["#{flutter_cmd} build appbundle --release"]
+    build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
+    target = FastlaneCliConfig.flutter_target(options)
+    build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+    build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :appbundle))
+    sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+
+    upload_to_play_store(
+      track: track,
+      aab: aab_path,
+      release_status: release_status,
+      json_key: FastlaneCliConfig.absolute_json_key(options),
+      package_name: package_name,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: true
+    )
+
+    symbols_status = upload_crashlytics_ndk_symbols(options)
+    flutter_symbols_status = FastlaneCliConfig.upload_flutter_symbols(options, platform: :android)
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Internal Testing yüklendi",
+      [
+        "Package        : #{package_name}",
+        "Flavor         : #{flavor || '(none)'}",
+        "Track          : #{track}",
+        "Release status : #{release_status}",
+        "AAB            : #{aab_path}",
+        "NDK symbols    : #{symbols_status}",
+        "Dart symbols   : #{flutter_symbols_status}"
+      ]
+    )
+  end
+
+  desc "Build and deploy Android app to Google Play production"
+  lane :production do |options|
+    package_name = android_package_name(options)
+    flutter_cmd = FastlaneCliConfig.flutter_command(options)
+    flavor = FastlaneCliConfig.resolve_flavor(options)
+    track = (options[:track] || "production").to_s
+    release_status = (options[:release_status] || "draft").to_s
+    aab_path = FastlaneCliConfig.android_aab_path(options)
+
+    auto_version = FastlaneCliConfig.bool_option(options, :auto_version, default: true)
+    if auto_version
+      next_code = get_next_version_code(options.merge(track: track))
+      update_pubspec_version(options.merge(version_code: next_code))
+    end
+
+    build_parts = ["#{flutter_cmd} build appbundle --release"]
+    build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
+    target = FastlaneCliConfig.flutter_target(options)
+    build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+    build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :appbundle))
+    sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+
+    upload_to_play_store(
+      track: track,
+      aab: aab_path,
+      release_status: release_status,
+      json_key: FastlaneCliConfig.absolute_json_key(options),
+      package_name: package_name,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: true
+    )
+
+    symbols_status = upload_crashlytics_ndk_symbols(options)
+    flutter_symbols_status = FastlaneCliConfig.upload_flutter_symbols(options, platform: :android)
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Production yüklendi",
+      [
+        "Package        : #{package_name}",
+        "Flavor         : #{flavor || '(none)'}",
+        "Track          : #{track}",
+        "Release status : #{release_status}",
+        "Auto version   : #{auto_version}",
+        "AAB            : #{aab_path}",
+        "NDK symbols    : #{symbols_status}",
+        "Dart symbols   : #{flutter_symbols_status}"
+      ]
+    )
+  end
+
+  desc "Build APK for local testing"
+  lane :build_apk do |options|
+    flutter_cmd = FastlaneCliConfig.flutter_command(options)
+    build_type = (options[:build_type] || "release").to_s
+    flavor = FastlaneCliConfig.resolve_flavor(options)
+
+    sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} clean", options))
+    sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options))
+
+    build_parts = ["#{flutter_cmd} build apk --#{build_type}"]
+    build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
+    target = FastlaneCliConfig.flutter_target(options)
+    build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+    build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :apk))
+    sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+
+    expected_apk = FastlaneCliConfig.resolve_app_path(
+      "build/app/outputs/flutter-apk/app-#{build_type}.apk", options
+    )
+    FastlaneCliConfig.print_summary_box(
+      "Android · APK build tamamlandı",
+      [
+        "Flavor       : #{flavor || '(none)'}",
+        "Build type   : #{build_type}",
+        "Target       : #{target || '(varsayılan)'}",
+        "Beklenen APK : #{expected_apk}"
+      ]
+    )
+  end
+
+  desc "Increment version code manually"
+  lane :increment_version do |options|
+    next_code = get_next_version_code(options)
+    update_pubspec_version(options.merge(version_code: next_code))
+  end
+
+  desc "Check current version status"
+  lane :version_status do |options|
+    info = pubspec_version_info(options)
+    UI.message("📱 Current local version: #{info[:version_name]}+#{info[:version_code]}")
+
+    remote_label = "(alınamadı)"
+    state_label = "?"
+    begin
+      latest_remote = get_next_version_code(options) - 1
+      remote_label = latest_remote.to_s
+      UI.message("🏪 Latest Play Store version code: #{latest_remote}")
+      if info[:version_code] > latest_remote
+        state_label = "✅ Local Play Store'un önünde"
+        UI.success("✅ Local version is ahead of Play Store.")
+      elsif info[:version_code] == latest_remote
+        state_label = "⚠️ Local Play Store ile aynı; artırım gerekli"
+        UI.important("⚠️ Local version matches Play Store; increment needed.")
+      else
+        state_label = "❌ Local Play Store'un gerisinde"
+        UI.error("❌ Local version is behind Play Store.")
+      end
+    rescue => e
+      state_label = "❌ Play Store sorgulanamadı: #{e.message}"
+      UI.error("❌ Could not fetch Play Store version: #{e.message}")
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Version status",
+      [
+        "Pubspec yolu      : #{info[:pubspec_path]}",
+        "Local versionName : #{info[:version_name]}",
+        "Local versionCode : #{info[:version_code]}",
+        "Play Store code   : #{remote_label}",
+        "Durum             : #{state_label}"
+      ]
+    )
+  end
+
+  desc "Print latest Google Play version and build number as version|buildnumber"
+  lane :get_android_version_data do |options|
+    package_name = android_package_name(options)
+    track = android_version_track(options)
+    json_key = FastlaneCliConfig.absolute_json_key(options)
+
+    semver_prefix = /\b(\d+\.\d+\.\d+)\b/
+    semver_key = ->(name) { name.to_s.split(".").map(&:to_i) }
+    extract_semver = ->(value) {
+      match = value.to_s.strip.match(semver_prefix)
+      match && match[1]
+    }
+
+    latest_code = 0
+    version_name = ""
+
+    # Preferred path: pull the full release info so we can pair the highest
+    # version_code with its release name reliably. Falls back to the two
+    # separate stock actions if anything goes wrong.
+    begin
+      releases = google_play_track_releases(
+        package_name: package_name,
+        track: track,
+        json_key: json_key
+      )
+
+      pairs = Array(releases).map do |release|
+        name = release[:name] || release["name"]
+        codes = release[:version_codes] || release["version_codes"]
+        max_code = Array(codes).map(&:to_i).max || 0
+        [extract_semver.call(name), max_code]
+      end.reject { |(_, code)| code <= 0 }
+
+      unless pairs.empty?
+        best_by_code = pairs.max_by { |(_, code)| code }
+        latest_code = best_by_code[1]
+        version_name = best_by_code[0].to_s
+      end
+    rescue => e
+      UI.important("⚠️ google_play_track_releases failed: #{e.message}")
+    end
+
+    if latest_code == 0
+      version_codes = google_play_track_version_codes(
+        package_name: package_name,
+        track: track,
+        json_key: json_key
+      )
+      latest_code = Array(version_codes).map(&:to_i).max || 0
+    end
+
+    if version_name.empty?
+      release_names = google_play_track_release_names(
+        package_name: package_name,
+        track: track,
+        json_key: json_key
+      )
+      candidates = Array(release_names).map(&extract_semver).compact
+      version_name = candidates.sort_by(&semver_key).last.to_s
+    end
+
+    version_name = "unknown" if version_name.empty?
+
+    output = "#{version_name}|#{latest_code}"
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Play Store version data",
+      [
+        "Package      : #{package_name}",
+        "Track        : #{track}",
+        "JSON key     : #{json_key}",
+        "versionName  : #{version_name}",
+        "versionCode  : #{latest_code}",
+        "Kaynak       : google_play_track_releases (fallback: track_version_codes + track_release_names)"
+      ]
+    )
+
+    puts output
+    puts "[VERSION_DATA] #{output}"
+    output
+  end
+
+  desc "Instructions for fixing Google Play Console issues"
+  lane :google_play_help do
+    UI.message("🔧 Google Play Console Common Issues & Solutions")
+    UI.message("1) Foreground service permissions → Play Console > App content")
+    UI.message("2) Release not found → publish draft release in internal testing")
+    UI.message("3) Version code already exists → run fastlane android version_status")
+    UI.message("4) Service account permissions → Play Console > API access")
+  end
+
+  desc "Upload Android Play Store metadata (optionally images/screenshots/changelogs)"
+  lane :update_metadata do |options|
+    package_name = android_package_name(options)
+    track = (options[:track] || "alpha").to_s
+    metadata_path = FastlaneCliConfig.resolve_path_in_fastlane(
+      options: options,
+      option_key: :metadata_path,
+      env_keys: %w[ANDROID_METADATA_PATH FASTLANE_ANDROID_METADATA_PATH],
+      default_relative: "android/metadata"
+    )
+    FileUtils.mkdir_p(metadata_path)
+
+    include_images = FastlaneCliConfig.bool_option(options, :include_images, default: false)
+    include_screenshots = FastlaneCliConfig.bool_option(options, :include_screenshots, default: false)
+    include_changelogs = FastlaneCliConfig.bool_option(options, :include_changelogs, default: false)
+
+    # version_code is only needed when uploading changelogs — supply uses it to
+    # locate the matching Play Console release. When changelogs are skipped,
+    # passing version_code makes supply hard-fail if the release does not yet
+    # exist (e.g. metadata-only run before a build is uploaded).
+    version_code = nil
+    if include_changelogs
+      version_code = options[:version_code]
+      version_code ||= pubspec_version_info(options)[:version_code]
+    end
+
+    supply_params = {
+      package_name: package_name,
+      track: track,
+      metadata_path: metadata_path,
+      json_key: FastlaneCliConfig.absolute_json_key(options),
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: !include_changelogs,
+      skip_upload_images: !include_images,
+      skip_upload_screenshots: !include_screenshots
+    }
+    supply_params[:version_code] = version_code unless version_code.nil?
+
+    supply(**supply_params)
+
+    locales = []
+    if Dir.exist?(metadata_path)
+      locales = Dir.children(metadata_path).select do |entry|
+        File.directory?(File.join(metadata_path, entry)) && !entry.start_with?(".")
+      end.sort
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Play Store metadata yüklendi",
+      [
+        "Package             : #{package_name}",
+        "Track               : #{track}",
+        "Metadata path       : #{metadata_path}",
+        "Locales             : #{locales.empty? ? '(none)' : locales.join(', ')}",
+        "Include images      : #{include_images}",
+        "Include screenshots : #{include_screenshots}",
+        "Include changelogs  : #{include_changelogs}",
+        "Version code        : #{version_code || '(skipped)'}"
+      ]
+    )
+  end
+
+  desc "Download Android Play Store listing assets (metadata, screenshots, changelogs)"
+  lane :download_store_listing do |options|
+    package_name = android_package_name(options)
+    track = (options[:track] || "internal").to_s
+    metadata_path = FastlaneCliConfig.resolve_path_in_fastlane(
+      options: options,
+      option_key: :metadata_path,
+      env_keys: %w[ANDROID_METADATA_PATH FASTLANE_ANDROID_METADATA_PATH],
+      default_relative: "android/metadata"
+    )
+    FileUtils.mkdir_p(metadata_path)
+
+    download_options = {
+      package_name: package_name,
+      track: track,
+      metadata_path: metadata_path,
+      json_key: FastlaneCliConfig.absolute_json_key(options)
+    }
+
+    version_name = options[:version_name].to_s.strip
+    download_options[:version_name] = version_name unless version_name.empty?
+
+    download_from_play_store(**download_options)
+    UI.success("✅ Play Store listing downloaded to #{metadata_path}")
+
+    locales = []
+    if Dir.exist?(metadata_path)
+      locales = Dir.children(metadata_path).select do |entry|
+        File.directory?(File.join(metadata_path, entry)) && !entry.start_with?(".")
+      end.sort
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Play Store listing indirildi",
+      [
+        "Package       : #{package_name}",
+        "Track         : #{track}",
+        "Output path   : #{metadata_path}",
+        "Locales       : #{locales.empty? ? '(none)' : locales.join(', ')}",
+        "Version name  : #{version_name.empty? ? '(latest)' : version_name}"
+      ]
+    )
+  end
+end

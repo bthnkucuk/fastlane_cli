@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+#
+# pre-push leak guard
+# ===================
+# Blocks pushing personal info, consumer brand names, and credential files to
+# this PUBLIC repo. PII has leaked here before.
+#
+# git invokes this hook as:  pre-push <remote-name> <remote-url>
+# with one line per ref on stdin:  <local ref> <local sha> <remote ref> <remote sha>
+#
+# Activate once per clone (worktrees included):
+#   git config core.hooksPath .githooks
+#
+# Escape hatch (use sparingly, you own the consequences):
+#   git push --no-verify
+#
+# What it scans, per commit being pushed:
+#   - added (`+`) diff lines
+#   - the commit message
+#   - file paths in the changeset
+#
+# What it blocks:
+#   - credential files entering the changeset (.env / *.p8 / *service-account*.json
+#     / GoogleService-Info.plist)
+#   - real phone numbers (+90XXXXXXXX)
+#   - any forbidden substring listed in .githooks/blocklist (gitignored, local)
+#
+# The brand/name blocklist is INTENTIONALLY external + gitignored so this
+# committed hook itself contains zero real brand names / PII.
+
+set -u
+
+ZERO_SHA="0000000000000000000000000000000000000000"
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+BLOCKLIST_FILE="$REPO_ROOT/.githooks/blocklist"
+
+RED=$'\033[31m'
+YELLOW=$'\033[33m'
+BOLD=$'\033[1m'
+RESET=$'\033[0m'
+
+VIOLATIONS=0
+
+# --- load the external substring blocklist -----------------------------------
+# FORBIDDEN_TERMS is a newline-delimited list of lowercased substrings.
+FORBIDDEN_TERMS=""
+HAVE_BLOCKLIST=0
+if [ -f "$BLOCKLIST_FILE" ]; then
+  HAVE_BLOCKLIST=1
+  while IFS= read -r line || [ -n "$line" ]; do
+    # strip trailing CR (Windows line endings) and surrounding whitespace
+    line="${line%$'\r'}"
+    # skip blank lines and comments
+    case "$line" in
+      ''|'#'*) continue ;;
+    esac
+    # lowercase
+    lc="$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]')"
+    FORBIDDEN_TERMS="${FORBIDDEN_TERMS}${lc}"$'\n'
+  done < "$BLOCKLIST_FILE"
+else
+  echo "${YELLOW}pre-push: .githooks/blocklist absent — brand-name scanning is OFF (credential + phone checks still run).${RESET}" >&2
+fi
+
+# --- credential-file path rules ----------------------------------------------
+# Returns a human-readable rule name if the path is a forbidden credential
+# file, empty string otherwise. Generic rules — no PII, safe to hardcode.
+credential_rule_for_path() {
+  local path="$1"
+  local base
+  base="$(basename -- "$path")"
+
+  case "$base" in
+    *.env.example) return ;;                       # explicitly allowed template
+    .env|.env.*)   echo "credential file (.env)"; return ;;
+  esac
+  case "$base" in
+    *.p8)          echo "credential file (.p8 key)"; return ;;
+  esac
+  case "$base" in
+    *service-account*.json) echo "credential file (service-account json)"; return ;;
+  esac
+  case "$base" in
+    GoogleService-Info.plist) echo "credential file (GoogleService-Info.plist)"; return ;;
+  esac
+}
+
+# --- per-line content checks -------------------------------------------------
+report() {
+  VIOLATIONS=$((VIOLATIONS + 1))
+  echo "${RED}  ✗ $1${RESET}" >&2
+}
+
+# Scan a single text payload (an added diff line OR a commit message).
+# $1 = commit sha (short), $2 = context label, $3 = the text
+scan_text() {
+  local sha="$1" ctx="$2" text="$3"
+
+  # real phone numbers — the +90 anchor means the +10000000000 placeholder
+  # never matches.
+  if printf '%s' "$text" | grep -Eq '\+90[0-9]{8,}'; then
+    report "$sha $ctx — phone number (+90XXXXXXXX): ${text}"
+  fi
+
+  # external substring blocklist (case-insensitive)
+  if [ "$HAVE_BLOCKLIST" -eq 1 ] && [ -n "$FORBIDDEN_TERMS" ]; then
+    local lc_text
+    lc_text="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')"
+    while IFS= read -r term || [ -n "$term" ]; do
+      [ -z "$term" ] && continue
+      case "$lc_text" in
+        *"$term"*) report "$sha $ctx — forbidden term '${term}': ${text}" ;;
+      esac
+    done <<EOF
+$FORBIDDEN_TERMS
+EOF
+  fi
+}
+
+# --- scan one commit ---------------------------------------------------------
+scan_commit() {
+  local sha="$1"
+  local short
+  short="$(git rev-parse --short "$sha")"
+
+  # 1) commit message
+  local msg
+  msg="$(git log -1 --format='%B' "$sha")"
+  while IFS= read -r mline || [ -n "$mline" ]; do
+    [ -z "$mline" ] && continue
+    scan_text "$short" "commit-message" "$mline"
+  done <<EOF
+$msg
+EOF
+
+  # 2) file paths in the changeset (NUL-delimited — robust to spaces).
+  #    --root makes the very first commit diffable too.
+  while IFS= read -r -d '' path; do
+    [ -z "$path" ] && continue
+    case "$path" in
+      fastlane/vendor/*) continue ;;   # excluded from scanning
+    esac
+    local rule
+    rule="$(credential_rule_for_path "$path")"
+    if [ -n "$rule" ]; then
+      report "$short path:${path} — ${rule}"
+    fi
+  done < <(git diff-tree --no-commit-id --name-only --root -r -z "$sha")
+
+  # 3) added diff lines (excluding fastlane/vendor/).
+  #    We track the current file via the "+++ b/<path>" header so the
+  #    blocklist files themselves can be skipped — they legitimately contain
+  #    forbidden substrings (the template's generic examples, and a real
+  #    contributor's local list every term of which would self-match).
+  local diff cur_file=""
+  diff="$(git diff-tree --no-commit-id --root -p -r "$sha" -- . ':(exclude)fastlane/vendor/')"
+  while IFS= read -r dline || [ -n "$dline" ]; do
+    case "$dline" in
+      '+++ /dev/null')
+        cur_file=""
+        continue ;;
+      '+++ b/'*)
+        cur_file="${dline#+++ b/}"
+        continue ;;
+      '+++ '*)
+        cur_file="${dline#+++ }"
+        continue ;;
+      '+'*) ;;            # an added content line — fall through
+      *) continue ;;
+    esac
+    # skip the leak-guard's own blocklist files
+    case "$cur_file" in
+      .githooks/blocklist|.githooks/blocklist.example) continue ;;
+    esac
+    local added="${dline#+}"
+    [ -z "$added" ] && continue
+    scan_text "$short" "added-line (${cur_file})" "$added"
+  done <<EOF
+$diff
+EOF
+}
+
+# --- enumerate commits per pushed ref ----------------------------------------
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # branch deletion — nothing to scan
+  if [ "$local_sha" = "$ZERO_SHA" ]; then
+    continue
+  fi
+
+  if [ "$remote_sha" = "$ZERO_SHA" ]; then
+    # new branch — everything not already on a remote
+    range_cmd=(git rev-list "$local_sha" --not --remotes)
+  else
+    # existing branch update
+    range_cmd=(git rev-list "${remote_sha}..${local_sha}")
+  fi
+
+  while IFS= read -r commit || [ -n "$commit" ]; do
+    [ -z "$commit" ] && continue
+    scan_commit "$commit"
+  done < <("${range_cmd[@]}")
+done
+
+# --- verdict -----------------------------------------------------------------
+if [ "$VIOLATIONS" -gt 0 ]; then
+  echo "" >&2
+  echo "${RED}${BOLD}╔════════════════════════════════════════════════════════════╗${RESET}" >&2
+  echo "${RED}${BOLD}║  PUSH BLOCKED — pre-push leak guard found ${VIOLATIONS} issue(s)        ║${RESET}" >&2
+  echo "${RED}${BOLD}╚════════════════════════════════════════════════════════════╝${RESET}" >&2
+  echo "" >&2
+  echo "${YELLOW}This is a PUBLIC repo. The push above would leak PII, a consumer" >&2
+  echo "brand name, or a credential file. Fix the offending commit(s)," >&2
+  echo "then push again." >&2
+  echo "" >&2
+  echo "If this is a false positive, override with:  ${BOLD}git push --no-verify${RESET}${YELLOW}" >&2
+  echo "(you are then responsible for what lands in the public history).${RESET}" >&2
+  exit 1
+fi
+
+exit 0

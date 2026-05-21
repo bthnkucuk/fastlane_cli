@@ -1,0 +1,56 @@
+---
+description: Fastlane CLI lanes and storepilot bridge commands must end with a coloured, box-bordered FastlaneCliConfig.summary_box / print_summary_box "human summary" log.
+globs:
+  - "fastlane/**/*.rb"
+  - "fastlane/Fastfile"
+alwaysApply: false
+---
+
+# Fastlane CLI — user-facing summary log
+
+Every user-facing fastlane lane and every storepilot_bridge command MUST end
+with a coloured, box-bordered summary rendered through the shared helper
+`FastlaneCliConfig.summary_box` / `FastlaneCliConfig.print_summary_box`
+(`fastlane/common_helpers.rb`).
+
+The summary is the *human report* that surfaces above the noisy fastlane log.
+It is mandatory — never ship a new lane without it.
+
+## Required content per box
+
+- **App / package / bundle id** — what was acted on
+- **Flavor** — `(none)` if absent
+- **Path or artifact** — absolute path
+- **Source** — *where* a value was read from (Play Store API, Spaceship, pubspec)
+- **Rule** — *how* a value was computed (max semver, build_number+1, max(...))
+- **Strategy** — *how* a value was written (regex replacement on pubspec, force-deliver)
+- **Outcome** — track, release_status, "tetiklendi/atlandı"
+
+Use `:sep` for in-box dividers.
+
+## Style invariants
+
+- Border: bright cyan `\e[96m`, title bold magenta `\e[1;95m`, width 78
+- Box chars `┌ ─ ┐ │ ├ ┤ └ ┘`
+- Honours `NO_COLOR=1`
+- Never roll a hand-made `====` / `----` box
+
+## Channel rules
+
+- Inside a Fastfile `lane :foo do …`: call `print_summary_box` (routes through
+  `FastlaneCore::UI.message`, lands in the Dart log panel via
+  `command_execution_service.dart`).
+- Inside `storepilot_bridge.rb` (JSON-on-stdout protocol): build with
+  `summary_box`, store as `data.summary` in the JSON response, AND mirror to
+  STDERR with `warn(summary)`. Never push the box to STDOUT.
+
+## When to skip
+
+- Private alias lanes (`deploy_testflight` → `test_flight`)
+- Pure path-resolution helpers
+- Private sub-lanes whose only consumer is another lane
+
+## Skill
+
+Full procedure with reference snippets:
+`.claude/skills/fastlane-summary-log/SKILL.md`.

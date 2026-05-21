@@ -1,0 +1,399 @@
+# Release pipeline — Track D1 (Wave 3 finalized)
+#
+# Builds platform-specific tarballs of the fastlane_cli binary + its Ruby/Fastlane
+# runner assets + the bundled Claude skills, computes sha256 checksums, and
+# attaches them to a GitHub Release.
+#
+# Triggered on semver-style tag push (v*.*.*).
+#
+# Tarball layout (consumed by dist/homebrew/Formula/fastlane_cli.rb):
+#   build/fastlane_cli          # AOT-compiled binary -> bin.install
+#   fastlane/                   # runner: Fastfile, Gemfile, common_helpers.rb,
+#                               # storepilot_bridge.rb, actions/, profile.base.yaml,
+#                               # ios/defaults/, AND sync_metadata_fallbacks.rb (relocated
+#                               # from bin/ at packaging time so the formula's
+#                               # `(share/"fastlane_cli").install "fastlane"` sweeps it in).
+#   skills/                     # bundled Claude/Cursor skills (mandatory, Track C1)
+#   README.md                   # mandatory
+#   LICENSE                     # optional (ROADMAP §0 still open) — emits ::notice:: when absent
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  # Needed for softprops/action-gh-release to write to the Releases API.
+  contents: write
+
+env:
+  # Opt every JavaScript action into Node.js 24 ahead of GitHub's forced
+  # rollout (June 2026). Removes the deprecation banner now and avoids
+  # surprises when older actions get auto-upgraded. The runner re-runs
+  # affected actions under Node 24 even if the action manifest still
+  # declares "node20".
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build:
+    name: Build ${{ matrix.os_label }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    # Cap each matrix leg so a queue-stuck GitHub-hosted runner (notably the
+    # Intel macos-13 pool, which has repeatedly held v0.x.0 tag pushes for
+    # 40+ min before manual cancellation) blocks the release for ≤20 min
+    # instead of hours. linux-x86_64 and macos-arm64 currently complete in
+    # ~2 min; 20 min is generous headroom.
+    timeout-minutes: 20
+    # Propagate the per-matrix-entry `continue-on-error` flag to the job
+    # itself (GH Actions only reads `continue-on-error` at job/step level —
+    # putting it inside the matrix entry on its own is not enough). The
+    # `|| false` fallback keeps legs without the flag strict.
+    # Docs: https://docs.github.com/en/actions/using-jobs/using-a-build-matrix-for-your-jobs#handling-failures
+    continue-on-error: ${{ matrix.continue-on-error || false }}
+    strategy:
+      # Surface all platform issues at once when cutting a release. Combined
+      # with the per-leg `continue-on-error` below this means an Intel-only
+      # failure / timeout no longer cancels the arm64 and linux siblings.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            os_label: macos
+            arch: arm64
+          # Intel macOS is the chronically-flaky leg (GitHub-hosted pool is
+          # being wound down). Mark it non-blocking so a queue-stuck or
+          # timed-out Intel build does NOT fail the workflow — the `publish`
+          # job below tolerates a missing Intel tarball.
+          - runner: macos-13
+            os_label: macos
+            arch: x86_64
+            continue-on-error: true
+          - runner: ubuntu-latest
+            os_label: linux
+            arch: x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # zenrouter_nocterm (git dep) declares `sdk: flutter` in its pubspec, so
+      # `dart pub get` refuses to resolve without the Flutter toolchain on
+      # PATH. Install Flutter; Dart ships bundled and `dart` works for our
+      # compile/test pipeline below.
+      #
+      # Pinned to commit SHA (instead of the floating `v2` tag) so a
+      # transient `codeload.github.com` blip or a surprise tag re-point
+      # can't break a tagged release mid-flight. Bump deliberately.
+      - name: Set up Flutter (provides Dart)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2 @ 2026-03-25
+        with:
+          flutter-version: "3.41.0"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: dart pub get
+
+      # Block releases on lint regressions too — --fatal-infos catches the
+      # whole severity ladder (info/warning/error).
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      # Fail-fast: a red test must block the release artifact upload. With the
+      # matrix `fail-fast: false`, sibling legs continue so we still see all
+      # platform failures in one run.
+      - name: Run tests
+        run: dart test
+
+      - name: Compile native executable
+        run: |
+          mkdir -p build
+          dart compile exe bin/fastlane_cli.dart -o build/fastlane_cli
+
+      # Stage tarball contents into a clean directory so the archive root has
+      # exactly the layout the formula expects. In particular,
+      # bin/sync_metadata_fallbacks.rb lives outside fastlane/ in the source
+      # tree (Wave 1 D1 flagged this); relocating it under fastlane/ at
+      # packaging time means the formula's `share.install "fastlane"` picks it
+      # up without a special case in install().
+      - name: Stage tarball contents
+        id: stage
+        run: |
+          set -euo pipefail
+          STAGE="stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/build" "$STAGE/fastlane"
+
+          # --- Required paths (fail loudly if missing) ----------------------
+          cp build/fastlane_cli "$STAGE/build/fastlane_cli"
+
+          # Copy the entire fastlane/ runner tree, excluding the RSpec
+          # scaffolding (spec/, .rspec). End users don't run RSpec from the
+          # tarball; carrying it would only bloat the install and (since
+          # rspec/webmock are in fastlane/Gemfile's :test group) wouldn't
+          # force the production bundle to install rspec/webmock.
+          rsync -a --exclude="spec/" --exclude=".rspec" fastlane/ "$STAGE/fastlane/"
+
+          # Pull bin/sync_metadata_fallbacks.rb into fastlane/ so the formula
+          # install block sweeps it in. Prefer (a) from the Wave 1 D1 note.
+          if [ -f bin/sync_metadata_fallbacks.rb ]; then
+            cp bin/sync_metadata_fallbacks.rb "$STAGE/fastlane/sync_metadata_fallbacks.rb"
+          else
+            echo "::warning::bin/sync_metadata_fallbacks.rb not found — lanes that shell out to it will fail at runtime"
+          fi
+
+          # skills/ is now mandatory (Track C1 shipped). README.md is mandatory.
+          if [ ! -d skills ]; then
+            echo "::error::skills/ is required (Track C1) but was not found"
+            exit 1
+          fi
+          cp -R skills "$STAGE/skills"
+
+          if [ ! -f README.md ]; then
+            echo "::error::README.md is required but was not found"
+            exit 1
+          fi
+          cp README.md "$STAGE/README.md"
+
+          # --- Optional paths -----------------------------------------------
+          if [ -f LICENSE ]; then
+            cp LICENSE "$STAGE/LICENSE"
+          else
+            echo "::notice::LICENSE not present — ROADMAP §0 has not chosen one yet; shipping without it for now"
+          fi
+
+          echo "stage_dir=$STAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Create tarball
+        id: tarball
+        run: |
+          set -euo pipefail
+          TARBALL="fastlane_cli-${{ matrix.os_label }}-${{ matrix.arch }}.tar.gz"
+          # -C $STAGE so paths inside the archive are repo-root-relative
+          # (build/fastlane_cli, fastlane/..., skills/..., README.md, [LICENSE]).
+          tar -czvf "$TARBALL" -C "${{ steps.stage.outputs.stage_dir }}" .
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      # Compute sha256 portably (macOS uses `shasum`, Linux ships `sha256sum`).
+      - name: Compute sha256
+        id: sha
+        run: |
+          set -euo pipefail
+          TARBALL="${{ steps.tarball.outputs.tarball }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            SUM="$(sha256sum "$TARBALL" | awk '{print $1}')"
+          else
+            SUM="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
+          fi
+          echo "${SUM}  ${TARBALL}" > "${TARBALL}.sha256"
+          echo "sha256=$SUM" >> "$GITHUB_OUTPUT"
+          echo "checksum_file=${TARBALL}.sha256" >> "$GITHUB_OUTPUT"
+
+      # Stash a single-line checksum so the publish job can assemble a
+      # deterministic fenced block in the release body (Track D2 sed-scrapes it).
+      - name: Stage checksum line
+        run: |
+          set -euo pipefail
+          mkdir -p checksums
+          echo "${{ steps.sha.outputs.sha256 }}  ${{ steps.tarball.outputs.tarball }}" \
+            > "checksums/${{ matrix.os_label }}-${{ matrix.arch }}.txt"
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: tarball-${{ matrix.os_label }}-${{ matrix.arch }}
+          path: |
+            ${{ steps.tarball.outputs.tarball }}
+            ${{ steps.tarball.outputs.checksum_file }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload checksum line artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: checksum-${{ matrix.os_label }}-${{ matrix.arch }}
+          path: checksums/${{ matrix.os_label }}-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    # The `build` matrix marks `macos-x86_64` as `continue-on-error: true`,
+    # so a stuck/timed-out Intel leg surfaces as `needs.build.result ==
+    # 'success'` (matrix-level continue-on-error legs do not flip the
+    # aggregate to 'failure'). We still want to publish when arm64 + linux
+    # succeeded even if Intel was the only failure, so additionally guard
+    # with `always()` + a check that the result is success OR failure (not
+    # 'cancelled' — a cancelled build means the human pulled the plug and
+    # we should respect that). The downstream "Verify required tarballs"
+    # step below is the real gate: it fails the publish job if either
+    # required platform tarball is missing, regardless of the matrix
+    # aggregate.
+    if: ${{ always() && (needs.build.result == 'success' || needs.build.result == 'failure') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download tarball artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: tarball-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download checksum artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: checksum-*
+          path: checksum-lines
+          merge-multiple: true
+
+      # Required-platform gate. arm64 macOS and Linux x86_64 MUST be present
+      # — those are the two platforms the Homebrew formula resolves to on
+      # contemporary user machines. macOS Intel is best-effort: if its
+      # tarball is missing (Intel leg timed out, queued forever, etc.) we
+      # log a warning and continue so the release still ships.
+      - name: Verify required tarballs
+        run: |
+          set -euo pipefail
+          required=(
+            "dist/fastlane_cli-macos-arm64.tar.gz"
+            "dist/fastlane_cli-macos-arm64.tar.gz.sha256"
+            "dist/fastlane_cli-linux-x86_64.tar.gz"
+            "dist/fastlane_cli-linux-x86_64.tar.gz.sha256"
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::required artifact missing: $f"
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "::error::Cannot publish release — one or more required platform tarballs are missing."
+            exit 1
+          fi
+
+          optional=(
+            "dist/fastlane_cli-macos-x86_64.tar.gz"
+            "dist/fastlane_cli-macos-x86_64.tar.gz.sha256"
+          )
+          for f in "${optional[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::warning::optional artifact missing (Intel macOS build likely timed out / was non-blocking): $f"
+            fi
+          done
+
+      # Assemble a single SHA256 block for the release body. The fenced
+      # ```text block is what Track D2's tap-update workflow sed-extracts
+      # to bump Formula/fastlane_cli.rb sha256 fields.
+      - name: Build release body
+        id: body
+        run: |
+          set -euo pipefail
+          {
+            echo "## fastlane_cli ${{ github.ref_name }}"
+            echo
+            echo "Repository: ${{ github.repository }}"
+            echo
+            echo "## Checksums"
+            echo
+            echo '```'
+            cat checksum-lines/*.txt | sort
+            echo '```'
+          } > release-body.md
+          echo "path=release-body.md" >> "$GITHUB_OUTPUT"
+
+      # Pinned to commit SHA (instead of the floating `v2` tag) so a
+      # transient `codeload.github.com` blip or a surprise tag re-point
+      # can't break a tagged release mid-flight. Bump deliberately.
+      #
+      # `fail_on_unmatched_files: false` because the macOS-x86_64 tarball is
+      # allowed to be absent (Intel leg is non-blocking). The required-
+      # platform gate above is the real correctness check.
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 @ 2026-04-12 (2.6.2)
+        with:
+          # `github.ref_name` resolves to the pushed tag (e.g. `v0.1.0`).
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: ${{ steps.body.outputs.path }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Forward-compat hook for Track D2: ping the (future) homebrew-fastlane_cli
+      # tap repo so its CI can open a PR updating Formula/fastlane_cli.rb.
+      #
+      # Contract for the receiving tap workflow:
+      #   on:
+      #     repository_dispatch:
+      #       types: [release-published]
+      #
+      #   client_payload schema:
+      #     tag         : "v0.1.0"                                    (string)
+      #     repository  : "<owner>/fastlane_cli"                      (string)
+      #     release_url : "https://github.com/.../releases/tag/v..."  (string)
+      #
+      # The tap workflow then fetches the release body, sed-extracts the
+      # ``` fenced ## Checksums block (lines: "<sha>  <tarball>"), rewrites
+      # the formula's url/sha256 triples per platform, and opens a PR.
+      #
+      # `TAP_DISPATCH_TOKEN` must be a fine-grained PAT with `contents: write`
+      # on the tap repo (a default GITHUB_TOKEN can't cross repos). The tap
+      # owner/name is parameterized via `TAP_REPOSITORY` repo-var (e.g.
+      # `<owner>/homebrew-fastlane_cli`) so this workflow doesn't bake in a
+      # hardcoded slug. Both are optional in Wave 3 — D2 hasn't created the
+      # tap repo yet — so we `continue-on-error` and emit a warning instead
+      # of failing the release.
+      - name: Dispatch release-published to tap repo
+        id: tap_dispatch
+        continue-on-error: true
+        env:
+          TAP_DISPATCH_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
+          TAP_REPOSITORY: ${{ vars.TAP_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_DISPATCH_TOKEN:-}" ]; then
+            echo "::warning::TAP_DISPATCH_TOKEN secret not set — skipping tap repository_dispatch. Track D2 will wire this once the tap repo exists."
+            exit 0
+          fi
+          if [ -z "${TAP_REPOSITORY:-}" ]; then
+            echo "::warning::TAP_REPOSITORY repo-var not set — skipping tap repository_dispatch. Set it to e.g. <owner>/homebrew-fastlane_cli once D2 creates the tap repo."
+            exit 0
+          fi
+
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+          PAYLOAD=$(cat <<JSON
+          {
+            "event_type": "release-published",
+            "client_payload": {
+              "tag": "${{ github.ref_name }}",
+              "repository": "${{ github.repository }}",
+              "release_url": "${RELEASE_URL}"
+            }
+          }
+          JSON
+          )
+
+          echo "Dispatching release-published to ${TAP_REPOSITORY}..."
+          HTTP_CODE=$(curl -sS -o /tmp/dispatch.out -w "%{http_code}" \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${TAP_DISPATCH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${TAP_REPOSITORY}/dispatches" \
+            -d "${PAYLOAD}")
+
+          if [ "${HTTP_CODE}" != "204" ]; then
+            echo "::warning::repository_dispatch returned HTTP ${HTTP_CODE} (expected 204):"
+            cat /tmp/dispatch.out
+            exit 1
+          fi
+          echo "Dispatched release-published to ${TAP_REPOSITORY} (HTTP 204)."

@@ -1,0 +1,111 @@
+homeTitle: Home
+androidTitle: Android
+iosTitle: iOS
+generalTitle: General
+guidesTitle: Guides
+runTitle: Run
+shortcuts: Shortcuts
+categories: Categories
+noAction: No actions found.
+pressEnterToRun: "Enter: Execute"
+upDownNavigate: "↑/↓: Change selection"
+footerHints: "A:Android I:iOS G:General H:Home D:Guide L:Lang Q:Quit"
+lastRun: Last Run
+command: Command
+logs: Logs
+progress: Progress
+currentFile: Current File
+waitingLogs: Waiting for log stream...
+commandPalettePlaceholder: "/ search pages or actions"
+commandPaletteTitle: Command Palette
+commandPaletteNoResult: No matches
+shellBrand: ⚡ Fast CLI
+pages: Pages
+validationFailed: Validation failed
+blockedByGuide: Action blocked due to guide/preflight issues.
+runConfirmTitle: Run Confirmation
+runConfirmMessage(actionTitle): 'Do you want to run "${actionTitle}"?'
+runConfirmHint: "Y/Enter: Confirm · N/Esc: Cancel"
+runConfirmApprove: "Confirm (Y/Enter)"
+runConfirmCancel: "Cancel (N/Esc)"
+quitConfirmTitle: Quit Confirmation
+quitConfirmMessage: Are you sure you want to quit?
+retry: "R: Retry"
+back: "B: Back"
+copyOutput: "C/Ctrl+Shift+C: Copy output"
+copiedOutput: Output copied to clipboard.
+confirmPrompt: This action requires confirmation. Press Y to continue.
+guideRetry: "R: Retry this action"
+guideFallback: No guide for this topic.
+dryRunLabel: Dry-run
+localeLabel: Language
+
+prompt:
+  twoFactorTitle: Two-factor authentication code
+  twoFactorBody(digits): "Enter the ${digits}-digit code"
+  twoFactorHint(digits): "${digits}-digit code"
+  yesNoTitle: Confirmation
+  yesNoBody: The lane is waiting for a yes/no answer.
+  trustComputerTitle: Trust this computer?
+  trustComputerBody: Apple is asking whether to trust this computer for App Store Connect.
+  chooseIndexTitle: Pick an option
+  chooseIndexBody(lo, hi): "Pick a number between ${lo} and ${hi}"
+  freeFormTitle: The lane is waiting for input
+  submit: Submit
+  cancel: Cancel
+  yes: Yes
+  no: No
+  errorWrongLength(n): "Must be ${n} digits"
+  errorOnlyDigits: Digits only
+  errorYesOrNo: "Type y or n"
+  errorOutOfRange(lo, hi): "Must be ${lo}-${hi}"
+  errorRequired: Required
+
+status:
+  idle: Idle
+  validating: Validating
+  blocked: Blocked
+  confirmationRequired: Needs Confirmation
+  running: Running
+  succeeded: Succeeded
+  failed: Failed
+  dryRun: Dry-run completed
+
+palette:
+  homeTitle: Home
+  generalTitle: General
+  guideAndroidMetadata: "Guide: Android Metadata"
+  guideIosMetadata: "Guide: iOS Metadata"
+  quitTitle: Quit
+  quitSubtitle: "q, quit, exit"
+
+guides:
+  androidMetadata:
+    title: Android Metadata & Screenshots
+    summary: Prepare Play Store metadata and screenshot folders in this structure.
+    checklist:
+      - Create a locale directory (e.g. tr-TR, en-US).
+      - Add title.txt, short_description.txt, full_description.txt.
+      - Add release notes file as changelogs/<version_code>.txt.
+      - Create every screenshot folder under images.
+      - Add at least one .png/.jpg screenshot.
+    pathSuffixes:
+      - /<locale>/title.txt
+      - /<locale>/short_description.txt
+      - /<locale>/full_description.txt
+      - /<locale>/changelogs/<version_code>.txt
+      - /<locale>/images/phoneScreenshots
+      - /<locale>/images/sevenInchScreenshots
+      - /<locale>/images/tenInchScreenshots
+      - /<locale>/images/tvScreenshots
+      - /<locale>/images/wearScreenshots
+  iosMetadata:
+    title: iOS Metadata & Screenshots
+    summary: Fix App Store metadata/screenshot structure, then retry the action.
+    checklist:
+      - Create locale metadata folders (e.g. tr-TR, en-US).
+      - Add .txt metadata files and whats_new.txt under each locale folder.
+      - Place contact files under review_information.
+      - Add at least one screenshot under screenshots/<locale>.
+    appleTvSuffix: "/appleTV (optional)"
+    iMessageSuffix: "/iMessage (optional)"

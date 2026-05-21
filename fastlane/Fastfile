@@ -1,0 +1,283 @@
+# Generic fastlane lanes for Fastlane CLI package.
+# App-specific repos should import this file from their own fastlane/Fastfile.
+
+require "fileutils"
+require "shellwords"
+require_relative "./common_helpers"
+
+default_platform(:android)
+
+import File.expand_path("android/Fastfile", __dir__)
+import File.expand_path("ios/Fastfile", __dir__)
+
+private_lane :update_pubspec_version do |options|
+  full_version = options[:full_version].to_s.strip
+  unless full_version =~ /^(\d+)\.(\d+)\.(\d+)\+(\d+)$/
+    UI.user_error!("full_version must be x.y.z+build (example: 2.49.5+269)")
+  end
+
+  pubspec_path = FastlaneCliConfig.resolve_pubspec_path(options)
+  pubspec_content = File.read(pubspec_path)
+  previous_match = pubspec_content.match(/^\s*version:\s*([^\s#]+)(?:\s+#.*)?\s*$/)
+  previous_version = previous_match ? previous_match[1].to_s.strip : "(yok)"
+
+  new_content = if pubspec_content =~ /^\s*version:\s*\d+\.\d+\.\d+\+\d+(?:\s+#.*)?\s*$/
+                  pubspec_content.gsub(
+                    /^\s*version:\s*\d+\.\d+\.\d+\+\d+(?:\s+#.*)?\s*$/,
+                    "version: #{full_version}"
+                  )
+                else
+                  "version: #{full_version}\n#{pubspec_content}"
+                end
+
+  File.write(pubspec_path, new_content)
+  UI.success("📝 Updated pubspec.yaml version to #{full_version}")
+
+  FastlaneCliConfig.print_summary_box(
+    "Pubspec versiyon güncellendi",
+    [
+      "Dosya     : #{pubspec_path}",
+      "Önceki    : #{previous_version}",
+      "Yeni      : #{full_version}",
+      "Kural     : caller'dan gelen full_version (#{full_version}) doğrudan yazıldı.",
+      "Yazım     : 'version: X.Y.Z+N' satırı regex ile değiştirildi (yoksa dosyanın başına eklendi)."
+    ]
+  )
+end
+
+desc "Get Android + iOS versions and return version|build"
+lane :get_version_data do |options|
+  # NOTE: previously `sh("cd #{runner} && fastlane android get_android_version_data ...")`
+  # — that spawned a second fastlane child via the shell, which broke
+  # interactive prompt forwarding (v0.4.0 PTY routing only reached the
+  # outer process). In v0.4.1 we invoke the platform lanes in-process via
+  # `FastlaneCliConfig.run_subline`, so stdin / lane_context / TTY are
+  # shared with the outer fastlane.
+  android_options = options.select do |key, _value|
+    %i[flavor package_name app_identifier track pubspec_path].include?(key.to_sym)
+  end
+  ios_options = options.select do |key, _value|
+    %i[flavor app_identifier bundle_identifier pubspec_path].include?(key.to_sym)
+  end
+
+  android_line = ""
+  begin
+    android_line = FastlaneCliConfig.run_subline(self, :android, :get_android_version_data, android_options).to_s.strip
+  rescue => e
+    UI.important("⚠️ Android version fetch failed: #{e.message}. Fallback unknown|0")
+    android_line = "unknown|0"
+  end
+
+  ios_line = ""
+  begin
+    ios_line = FastlaneCliConfig.run_subline(self, :ios, :get_ios_version_data, ios_options).to_s.strip
+  rescue => e
+    UI.important("⚠️ iOS version fetch failed: #{e.message}. Fallback unknown|0")
+    ios_line = "unknown|0"
+  end
+
+  a_version, a_build = android_line.split("|", 2)
+  i_version, i_build = ios_line.split("|", 2)
+
+  pubspec_version = "0.0.0"
+  pubspec_build = 0
+  begin
+    pubspec_path = FastlaneCliConfig.resolve_pubspec_path(options)
+    if File.exist?(pubspec_path)
+      content = File.read(pubspec_path)
+      if content =~ /^version:\s*(\d+\.\d+\.\d+)\+(\d+)/m
+        pubspec_version = Regexp.last_match(1)
+        pubspec_build = Regexp.last_match(2).to_i
+      end
+    end
+  rescue => e
+    UI.important("⚠️ Could not read pubspec for fallback version: #{e.message}")
+  end
+
+  bump = (options[:bump] || "patch")
+  begin
+    bump = FastlaneCliConfig.normalize_bump_level(bump)
+  rescue ArgumentError => e
+    UI.user_error!(e.message)
+  end
+
+  # Component-wise-max resolution across all three sources. A source that is
+  # `unknown|0` (store unreachable / app not yet published) folds in as
+  # 0.0.0+0 — it never blocks the max. See `resolve_bumped_version` /
+  # `parse_version_components` in common_helpers.rb.
+  resolved =
+    begin
+      FastlaneCliConfig.resolve_bumped_version(
+        sources: [
+          { version: a_version, build: a_build },
+          { version: i_version, build: i_build },
+          { version: pubspec_version, build: pubspec_build }
+        ],
+        bump: bump
+      )
+    rescue ArgumentError => e
+      UI.user_error!("Version parse failed: #{e.message}")
+    end
+
+  maxes = resolved[:maxes]
+  selected_version = resolved[:version_name]
+  selected_build = resolved[:build_number]
+  final_output = "#{selected_version}|#{selected_build}"
+
+  app_name = "(unknown)"
+  begin
+    if defined?(pubspec_path) && pubspec_path && File.exist?(pubspec_path)
+      pubspec_content_for_name = File.read(pubspec_path)
+      name_match = pubspec_content_for_name.match(/^\s*name:\s*([^\s#]+)\s*$/)
+      app_name = name_match[1].to_s.strip if name_match
+    end
+  rescue => _e
+    app_name = "(unknown)"
+  end
+  flavor_label = options[:flavor].to_s.strip
+  flavor_label = "(none)" if flavor_label.empty?
+
+  FastlaneCliConfig.print_summary_box(
+    "Version data",
+    [
+      "App     : #{app_name}",
+      "Flavor  : #{flavor_label}",
+      "Pubspec : #{pubspec_path || '(bulunamadı)'}",
+      :sep,
+      "Android (Play / supply)        version=#{a_version || '-'}  build=#{a_build || '-'}",
+      "  ↳ Kaynak: lane 'android get_android_version_data' → [VERSION_DATA]",
+      "iOS (App Store / Spaceship)    version=#{i_version || '-'}  build=#{i_build || '-'}",
+      "  ↳ Kaynak: lane 'ios get_ios_version_data' → [VERSION_DATA]",
+      "Pubspec (yerel)                version=#{pubspec_version}  build=#{pubspec_build}",
+      "  ↳ Kaynak: #{pubspec_path || '(bulunamadı)'}",
+      :sep,
+      "Komponent-bazlı max  : major=#{maxes[:major]}  minor=#{maxes[:minor]}  " \
+        "patch=#{maxes[:patch]}  build=#{maxes[:build]}",
+      "Bump seviyesi        : #{bump}",
+      "Seçilen              : #{selected_version}+#{selected_build}",
+      :sep,
+      "Kural: her komponent (major/minor/patch/build) 3 kaynağın bağımsız maksimumu.",
+      "  versionName = bump=#{bump} uygulanmış komponent-max " \
+        "(patch→+1 patch · minor→+1 minor,patch=0 · major→+1 major,minor=patch=0)",
+      "  buildNumber = max(android, ios, pubspec) + 1  (bump seviyesinden bağımsız)"
+    ]
+  )
+
+  puts final_output
+  puts "[VERSION_DATA] #{final_output}"
+  final_output
+end
+
+desc "Bump app version and trigger platform lanes"
+lane :internal_test do |options|
+  # Bump level (patch / minor / major). Invalid → clear error. The actual
+  # component-wise-max computation lives in `get_version_data` →
+  # `FastlaneCliConfig.resolve_bumped_version`; we only validate here so a
+  # bad value fails fast before any build work.
+  bump =
+    begin
+      FastlaneCliConfig.normalize_bump_level(options[:bump] || "patch")
+    rescue ArgumentError => e
+      UI.user_error!(e.message)
+    end
+
+  platform = (options[:platform] || "both").to_s.downcase
+  run_ios = platform.include?("ios") || platform == "both"
+  run_android = platform.include?("android") || platform == "both"
+  UI.user_error!("platform must include android or ios") unless run_ios || run_android
+
+  skip_bump = FastlaneCliConfig.bool_option(options, :skip_bump, default: false)
+
+  if skip_bump
+    UI.message("⏭ skip_bump set — using existing pubspec version, no bump.")
+  else
+    full_version = options[:full_version].to_s.strip
+    if full_version.empty?
+      # `get_version_data` already resolves the component-wise-max bump for
+      # the requested `bump` level and returns the final "version|build".
+      # Do NOT re-apply a bump on top of it.
+      resolved_version, resolved_build =
+        get_version_data(options.merge(bump: bump.to_s)).to_s.strip.split("|", 2)
+      full_version = "#{resolved_version}+#{resolved_build}"
+    end
+
+    update_pubspec_version(options.merge(full_version: full_version))
+  end
+
+  flutter_cmd = FastlaneCliConfig.flutter_command(options)
+  run_clean = FastlaneCliConfig.bool_option(options, :run_clean, default: true)
+  run_pub_get = FastlaneCliConfig.bool_option(options, :run_pub_get, default: true)
+  # `flutter clean` triggers `xcodebuild clean` per SwiftPM scheme — Firebase iOS SDK
+  # makes this take 5+ minutes. Reproducing it by hand is ~5 seconds. See fastlane_cli/README.md.
+  fast_clean_cmd = "rm -rf build .dart_tool .flutter-plugins-dependencies " \
+                   "ios/Pods ios/.symlinks " \
+                   "ios/Flutter/ephemeral ios/Flutter/Flutter.framework " \
+                   "ios/Flutter/Flutter.podspec ios/Flutter/Generated.xcconfig " \
+                   "ios/Flutter/flutter_export_environment.sh"
+  sh(FastlaneCliConfig.in_app_root(fast_clean_cmd, options)) if run_clean
+  # `flutter pub get` may transitively spawn `pod install` on iOS-plugin
+  # projects. Strip GEM_HOME/PATH pollution from the brew fastlane wrapper
+  # so cocoapods loads under the user's Ruby. See common_helpers.rb
+  # `with_clean_subprocess_env`.
+  if run_pub_get
+    FastlaneCliConfig.with_clean_subprocess_env do
+      sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options))
+    end
+  end
+
+  if run_android
+    # In-process invocation (see v0.4.1 / `run_subline` rationale above).
+    FastlaneCliConfig.run_subline(self, :android, :internal_testing, options)
+  end
+
+  if run_ios
+    build_ios = FastlaneCliConfig.bool_option(options, :build_ios, default: true)
+    if build_ios
+      target = FastlaneCliConfig.flutter_target(options)
+      flavor = FastlaneCliConfig.resolve_flavor(options)
+
+      build_parts = ["#{flutter_cmd} build ipa --release"]
+      build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
+      build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+      build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :ipa))
+      # `flutter build ipa` shells out to `pod install`; without a clean
+      # env it fails with "CocoaPods is installed but broken". See
+      # common_helpers.rb `with_clean_subprocess_env`.
+      FastlaneCliConfig.with_clean_subprocess_env do
+        sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+      end
+    end
+
+    # In-process invocation (see v0.4.1 / `run_subline` rationale above).
+    FastlaneCliConfig.run_subline(self, :ios, :test_flight, options)
+  end
+
+  FastlaneCliConfig.print_summary_box(
+    "Internal test tamamlandı",
+    [
+      "Versiyon       : #{(defined?(full_version) && !full_version.to_s.empty?) ? full_version : '(skip_bump → mevcut)'}",
+      "Bump tipi      : #{bump}",
+      "Platform       : #{platform}",
+      "Flutter komutu : #{flutter_cmd}",
+      "Adımlar        : clean=#{run_clean}  pub_get=#{run_pub_get}",
+      :sep,
+      "Android        : #{run_android ? 'android internal_testing tetiklendi' : 'atlandı'}",
+      "iOS            : #{run_ios ? 'ios test_flight tetiklendi' : 'atlandı'}"
+    ]
+  )
+end
+
+desc "Build and distribute to Firebase App Distribution"
+lane :firebase_distribute do |options|
+  target_platform = (options[:platform] || "android").to_s.downcase
+
+  case target_platform
+  when "android"
+    # In-process invocation (see v0.4.1 / `run_subline` rationale above).
+    FastlaneCliConfig.run_subline(self, :android, :firebase_distribute, options)
+  when "ios"
+    FastlaneCliConfig.run_subline(self, :ios, :firebase_distribute, options)
+  else
+    UI.user_error!("Unsupported platform: #{target_platform}")
+  end
+end

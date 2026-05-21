@@ -1,0 +1,962 @@
+require "shellwords"
+require_relative "../common_helpers"
+require_relative "../promote_helpers"
+
+platform :ios do
+  private_lane :ios_app_identifier do |options|
+    FastlaneCliConfig.resolve_identifier(options, platform: :ios)
+  end
+
+  private_lane :run_deliver_download do |options|
+    command = options[:command].to_s.strip
+    app_identifier = options[:app_identifier].to_s.strip
+    path_flag = options[:path_flag].to_s.strip
+    target_path = options[:target_path].to_s.strip
+
+    UI.user_error!("command is required") if command.empty?
+    UI.user_error!("app_identifier is required") if app_identifier.empty?
+    UI.user_error!("path_flag is required") if path_flag.empty?
+    UI.user_error!("target_path is required") if target_path.empty?
+
+    FileUtils.mkdir_p(target_path)
+
+    sh(
+      FastlaneCliConfig.shell_join(
+        [
+          "fastlane deliver #{command}",
+          "--force",
+          "--app_identifier #{Shellwords.escape(app_identifier)}",
+          "--#{path_flag} #{Shellwords.escape(target_path)}"
+        ]
+      )
+    )
+  end
+
+  desc "Get next build number from App Store Connect (TestFlight)"
+  private_lane :get_next_build_number do |options|
+    app_identifier = ios_app_identifier(options)
+    latest_build = latest_testflight_build_number(app_identifier: app_identifier).to_i
+    latest_build + 1
+  rescue => e
+    UI.important("⚠️ Could not fetch latest TestFlight build number: #{e.message}. Fallback to 1.")
+    1
+  end
+
+  desc "Print latest TestFlight version and build number as version|buildnumber"
+  lane :get_ios_version_data do |options|
+    app_identifier = ios_app_identifier(options)
+    auth_options = resolve_app_store_connect_api_key(options)
+
+    output = begin
+      build_number = app_store_build_number(
+        {
+          app_identifier: app_identifier,
+          live: false,
+          platform: "ios"
+        }.merge(auth_options)
+      )
+      version = lane_context[SharedValues::LATEST_VERSION].to_s.strip
+      UI.user_error!("No build number returned from App Store Connect") if build_number.nil?
+      UI.user_error!("No version returned from App Store Connect") if version.empty?
+      "#{version}|#{build_number}"
+    rescue => e
+      UI.important("⚠️ iOS version fetch failed: #{e.message}. Fallback 0.0.0|0")
+      "0.0.0|0"
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · App Store Connect version data",
+      [
+        "App identifier : #{app_identifier}",
+        "Auth strategy  : #{auth_options.keys.join(', ')}",
+        "Version (live=false / TestFlight): #{output.split('|').first}",
+        "Build number                     : #{output.split('|').last}",
+        "Kaynak                            : Spaceship → app_store_build_number(live: false)"
+      ]
+    )
+
+    puts output
+    puts "[VERSION_DATA] #{output}"
+    output
+  end
+
+  desc "Build and distribute iOS app to Firebase App Distribution"
+  lane :firebase_distribute do |options|
+    flutter_cmd = FastlaneCliConfig.flutter_command(options)
+    scheme = options[:scheme] || ENV["IOS_SCHEME"] || "Runner"
+    configuration = options[:configuration] || "Release"
+    release_notes = options[:release_notes] || "New beta build"
+    groups = options[:groups] || ENV["FIREBASE_IOS_GROUPS"] || "internal-testers"
+    app_identifier = ios_app_identifier(options)
+    ipa_name = options[:ipa_name] || ENV["IOS_IPA_NAME"] || "Runner.ipa"
+
+    # `flutter clean` / `pub get` / `build ios` all shell to `pod` on
+    # iOS-plugin projects; the brew fastlane wrapper's GEM_HOME pollutes
+    # the child env and breaks cocoapods. See common_helpers.rb
+    # `with_clean_subprocess_env`.
+    FastlaneCliConfig.with_clean_subprocess_env do
+      sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} clean", options))
+      sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options))
+      build_parts = ["#{flutter_cmd} build ios --release --no-codesign"]
+      build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :ipa))
+      sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
+    end
+
+    provisioning_profile = options[:provisioning_profile_name] || ENV["IOS_PROVISIONING_PROFILE_NAME"]
+    export_options = if provisioning_profile.to_s.strip.empty?
+                       nil
+                     else
+                       {
+                         provisioningProfiles: {
+                           app_identifier => provisioning_profile
+                         }
+                       }
+                     end
+
+    build_app(
+      scheme: scheme,
+      configuration: configuration,
+      export_method: options[:export_method] || "ad-hoc",
+      workspace: FastlaneCliConfig.absolute_workspace_path(options),
+      output_directory: FastlaneCliConfig.absolute_output_directory(options),
+      output_name: ipa_name,
+      skip_profile_detection: true,
+      export_options: export_options
+    )
+
+    firebase_app_distribution(
+      app: options[:firebase_app_id] || ENV["FIREBASE_APP_ID_IOS"],
+      ipa_path: FastlaneCliConfig.resolve_app_path(options[:ipa_path] || "build/ios/#{ipa_name}", options),
+      release_notes: release_notes,
+      groups: groups,
+      firebase_cli_token: options[:firebase_cli_token] || ENV["FIREBASE_CLI_TOKEN"]
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · Firebase App Distribution",
+      [
+        "App identifier : #{app_identifier}",
+        "Scheme         : #{scheme}",
+        "Configuration  : #{configuration}",
+        "IPA            : #{FastlaneCliConfig.resolve_app_path(options[:ipa_path] || "build/ios/#{ipa_name}", options)}",
+        "Groups         : #{groups}",
+        "Firebase app   : #{options[:firebase_app_id] || ENV['FIREBASE_APP_ID_IOS'] || '(env yok)'}",
+        "Provisioning   : #{provisioning_profile.to_s.empty? ? '(otomatik)' : provisioning_profile}"
+      ]
+    )
+  end
+
+  # Resolves App Store Connect credentials in priority order:
+  #   1. App Store Connect API key JSON  (preferred — fully non-interactive)
+  #        APP_STORE_CONNECT_API_KEY_JSON_PATH=/abs/path/to/api_key.json
+  #   2. API key triple (.p8 + ids)
+  #        APP_STORE_CONNECT_API_KEY_ID=ABC123
+  #        APP_STORE_CONNECT_API_KEY_ISSUER_ID=xxxx-xxxx
+  #        APP_STORE_CONNECT_API_KEY_FILEPATH=/abs/path/AuthKey_ABC123.p8
+  #   3. FASTLANE_SESSION cookie (obtained earlier via `fastlane spaceauth -u <user>`)
+  #   4. Falls back to FASTLANE_USER + FASTLANE_PASSWORD + 2FA — only works in
+  #      a real interactive terminal. The CLI runs subprocesses with closed
+  #      stdin so this path will fail with "Missing password ... non-interactive
+  #      shell".
+  private_lane :resolve_app_store_connect_api_key do |options|
+    json_path = FastlaneCliConfig.option_or_env(
+      options,
+      :api_key_path,
+      %w[APP_STORE_CONNECT_API_KEY_JSON_PATH APP_STORE_CONNECT_API_KEY_PATH FASTLANE_API_KEY_PATH]
+    )
+    json_path = FastlaneCliConfig.resolve_app_path(json_path, options) unless FastlaneCliConfig.blank?(json_path)
+
+    if !FastlaneCliConfig.blank?(json_path) && File.exist?(json_path.to_s)
+      UI.message("🔐 Using App Store Connect API key (json): #{json_path}")
+      next { api_key_path: json_path }
+    end
+
+    key_id = FastlaneCliConfig.option_or_env(options, :api_key_id, %w[APP_STORE_CONNECT_API_KEY_ID])
+    issuer_id = FastlaneCliConfig.option_or_env(options, :api_issuer_id, %w[APP_STORE_CONNECT_API_KEY_ISSUER_ID])
+    p8_path = FastlaneCliConfig.option_or_env(
+      options,
+      :api_key_filepath,
+      %w[APP_STORE_CONNECT_API_KEY_FILEPATH APP_STORE_CONNECT_API_KEY_P8_PATH]
+    )
+    p8_path = FastlaneCliConfig.resolve_app_path(p8_path, options) unless FastlaneCliConfig.blank?(p8_path)
+
+    if !FastlaneCliConfig.blank?(key_id) && !FastlaneCliConfig.blank?(issuer_id) &&
+       !FastlaneCliConfig.blank?(p8_path) && File.exist?(p8_path.to_s)
+      UI.message("🔐 Using App Store Connect API key (id=#{key_id}, p8=#{p8_path})")
+      api_key = app_store_connect_api_key(
+        key_id: key_id.to_s,
+        issuer_id: issuer_id.to_s,
+        key_filepath: p8_path.to_s,
+        duration: 1200,
+        in_house: false
+      )
+      next({ api_key: api_key })
+    end
+
+    if !FastlaneCliConfig.blank?(ENV["FASTLANE_SESSION"])
+      UI.message("🍪 Using FASTLANE_SESSION cookie (no API key found).")
+      next({})
+    end
+
+    UI.important(
+      "⚠️ No App Store Connect API key configured.\n" \
+      "   For non-interactive runs (this CLI), set one of:\n" \
+      "     • APP_STORE_CONNECT_API_KEY_JSON_PATH (path to JSON with key_id/issuer_id/key)\n" \
+      "     • APP_STORE_CONNECT_API_KEY_ID + _ISSUER_ID + _FILEPATH (path to AuthKey.p8)\n" \
+      "     • FASTLANE_SESSION (run `fastlane spaceauth -u $FASTLANE_USER` once)\n" \
+      "   Falling back to FASTLANE_USER/FASTLANE_PASSWORD; this fails in non-interactive shells."
+    )
+    {}
+  end
+
+  desc "Upload iOS build to TestFlight"
+  lane :test_flight do |options|
+    app_identifier = ios_app_identifier(options)
+    ipa_path = FastlaneCliConfig.ios_ipa_path(options)
+
+    auth_options = resolve_app_store_connect_api_key(options)
+
+    upload_to_testflight(
+      {
+        ipa: ipa_path,
+        skip_waiting_for_build_processing: FastlaneCliConfig.bool_option(
+          options,
+          :skip_waiting_for_build_processing,
+          default: true
+        ),
+        app_identifier: app_identifier
+      }.merge(auth_options)
+    )
+
+    upload_symbols = FastlaneCliConfig.bool_option(options, :upload_symbols, default: false)
+    symbols_status = "atlandı"
+    if upload_symbols
+      script_result = FastlaneCliConfig.resolve_upload_symbols_script_with_source(options)
+      upload_script = script_result[:path]
+      gsp_path = FastlaneCliConfig.resolve_google_service_info_plist(options)
+      dsym_path = options[:dsym_path] || ENV["IOS_DSYM_PATH"] || "./build/ios/archive/Runner.xcarchive/dSYMs"
+      dsym_path = FastlaneCliConfig.resolve_app_path(dsym_path, options)
+
+      if upload_script.to_s.strip.empty?
+        UI.important("⚠️ upload_symbols enabled but upload-symbols binary not found. Skipping symbol upload.")
+        symbols_status = "atlandı (upload-symbols bulunamadı)"
+      elsif gsp_path.to_s.strip.empty?
+        UI.important("⚠️ upload_symbols enabled but GoogleService-Info.plist not found. Skipping symbol upload.")
+        symbols_status = "atlandı (GoogleService-Info.plist bulunamadı)"
+      else
+        UI.message("Crashlytics upload-symbols kaynağı: #{script_result[:source]} (#{upload_script})")
+        sh(
+          "#{Shellwords.escape(upload_script.to_s)} -gsp #{Shellwords.escape(gsp_path.to_s)} -p ios #{Shellwords.escape(dsym_path.to_s)}"
+        )
+        symbols_status = "yüklendi (kaynak: #{script_result[:source]})"
+      end
+    end
+
+    flutter_symbols_status = FastlaneCliConfig.upload_flutter_symbols(options, platform: :ios)
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · TestFlight yüklendi",
+      [
+        "App identifier : #{app_identifier}",
+        "IPA            : #{ipa_path}",
+        "Auth strategy  : #{auth_options.keys.join(', ')}",
+        "Skip wait      : #{FastlaneCliConfig.bool_option(options, :skip_waiting_for_build_processing, default: true)}",
+        "Symbols        : #{symbols_status}",
+        "Dart symbols   : #{flutter_symbols_status}"
+      ]
+    )
+  end
+
+  desc "Alias for test_flight for backward compatibility"
+  lane :deploy_testflight do |options|
+    test_flight(options)
+  end
+
+  desc "Upload iOS build to App Store Connect"
+  lane :app_store do |options|
+    app_identifier = ios_app_identifier(options)
+    ipa_path = FastlaneCliConfig.ios_ipa_path(options)
+    skip_metadata = FastlaneCliConfig.bool_option(options, :skip_metadata, default: true)
+    skip_screenshots = FastlaneCliConfig.bool_option(options, :skip_screenshots, default: true)
+    submit_for_review = FastlaneCliConfig.bool_option(options, :submit_for_review, default: false)
+
+    auth_options = resolve_app_store_connect_api_key(options)
+
+    # IDFA / export-compliance / content-rights flags. deliver applies the
+    # IDFA + export-compliance answers from `submission_information` inside
+    # `submit_for_review`, so we want them passed in here even when
+    # `submit_for_review: false` (no harm: they're ignored). Without this,
+    # actually submitting via `submit_for_review: true` would re-trigger the
+    # "Advertising Identifier" / "Export Compliance" review-blockers.
+    _submission_info_path, submission_info = FastlaneCliConfig.read_submission_information(options)
+
+    upload_to_app_store(
+      {
+        ipa: ipa_path,
+        app_identifier: app_identifier,
+        skip_metadata: skip_metadata,
+        skip_screenshots: skip_screenshots,
+        skip_binary_upload: false,
+        submit_for_review: submit_for_review,
+        force: true,
+        submission_information: submission_info
+      }.merge(auth_options)
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · App Store yüklendi",
+      [
+        "App identifier      : #{app_identifier}",
+        "IPA                 : #{ipa_path}",
+        "Skip metadata       : #{skip_metadata}",
+        "Skip screenshots    : #{skip_screenshots}",
+        "Submit for review   : #{submit_for_review}",
+        "Auth strategy       : #{auth_options.keys.join(', ')}",
+        "Submission info keys: #{submission_info.keys.size == 0 ? '(yok)' : submission_info.keys.join(', ')}"
+      ]
+    )
+  end
+
+  desc "Alias for app_store for backward compatibility"
+  lane :deploy_appstore do |options|
+    app_store(options)
+  end
+
+  desc "Upload iOS dSYMs to Firebase Crashlytics"
+  lane :upload_dsyms do |options|
+    script_result = FastlaneCliConfig.resolve_upload_symbols_script_with_source(options)
+    upload_script = script_result[:path]
+    gsp_path = FastlaneCliConfig.resolve_google_service_info_plist(options)
+    dsym_path = options[:dsym_path] || ENV["IOS_DSYM_PATH"] || "./build/ios/archive/Runner.xcarchive/dSYMs"
+    dsym_path = FastlaneCliConfig.resolve_app_path(dsym_path, options)
+
+    if upload_script.to_s.strip.empty?
+      UI.user_error!(
+        "upload-symbols binary not found. Auto-discovery checked: explicit " \
+        "override (IOS_UPLOAD_SYMBOLS_SCRIPT), CocoaPods " \
+        "(ios/Pods/FirebaseCrashlytics/upload-symbols), SwiftPM DerivedData, " \
+        "and ios/scripts/upload-symbols."
+      )
+    end
+    if gsp_path.to_s.strip.empty?
+      UI.user_error!(
+        "GoogleService-Info.plist not found. Auto-discovery checked: explicit " \
+        "override (IOS_GOOGLE_SERVICE_INFO_PLIST), ios/flavors/<flavor>/, and " \
+        "ios/Runner/GoogleService-Info.plist."
+      )
+    end
+
+    sh(
+      "#{Shellwords.escape(upload_script.to_s)} -gsp #{Shellwords.escape(gsp_path.to_s)} -p ios #{Shellwords.escape(dsym_path.to_s)}"
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · dSYM yüklendi (Crashlytics)",
+      [
+        "Upload script : #{upload_script}",
+        "Script source : #{script_result[:source]}",
+        "GSP plist     : #{gsp_path}",
+        "dSYM path     : #{dsym_path}"
+      ]
+    )
+  end
+
+  desc "Upload iOS App Store metadata (optionally screenshots)"
+  lane :update_metadata do |options|
+    UI.message("[update_metadata] lane started; resolving paths...")
+    metadata_path = FastlaneCliConfig.resolve_path_in_fastlane(
+      options: options,
+      option_key: :metadata_path,
+      env_keys: %w[IOS_METADATA_PATH FASTLANE_IOS_METADATA_PATH],
+      default_relative: "ios/metadata"
+    )
+    screenshots_path = FastlaneCliConfig.resolve_path_in_fastlane(
+      options: options,
+      option_key: :screenshots_path,
+      env_keys: %w[IOS_SCREENSHOTS_PATH FASTLANE_IOS_SCREENSHOTS_PATH],
+      default_relative: "ios/screenshots"
+    )
+    include_screenshots = FastlaneCliConfig.bool_option(options, :include_screenshots, default: false)
+    app_identifier = ios_app_identifier(options)
+    UI.message("[update_metadata] app_identifier=#{app_identifier}")
+    UI.message("[update_metadata] metadata_path=#{metadata_path}")
+    UI.message("[update_metadata] screenshots_path=#{screenshots_path} include=#{include_screenshots}")
+
+    # `review_information/*.txt` is required by deliver (issue #20538: missing
+    # AppReviewDetail triggers a "No data" error). The CLI ships defaults at
+    # `fastlane_cli/fastlane/ios/defaults/review_information/`; we spray any
+    # missing/empty file into the app's metadata path and restore after deliver
+    # so the per-app dir stays empty in git unless explicitly overridden.
+    review_restorable = FastlaneCliConfig.materialize_review_information(
+      options, metadata_path: metadata_path
+    )
+    UI.message(
+      "[update_metadata] review_information fallbacks materialised: " \
+      "#{review_restorable.size} file(s)"
+    )
+
+    # Root-level fallbacks (support_url.txt, marketing_url.txt, privacy_url.txt
+    # next to copyright.txt) → sprayed into any locale whose own file is empty
+    # or missing. Restored after deliver so git stays clean.
+    fallback_restorable = FastlaneCliConfig.materialize_localised_fallbacks(
+      metadata_path: metadata_path
+    )
+    UI.message(
+      "[update_metadata] localised URL fallbacks materialised: " \
+      "#{fallback_restorable.size} file(s)"
+    )
+
+    auth_options = resolve_app_store_connect_api_key(options)
+
+    # Optional extras — each is a deliver/ASC concern resolved app-level first,
+    # falling back to fastlane_cli/ios/defaults where it makes sense.
+    #
+    # NOTE on price_tier: deliver's UploadPriceTier triggers a known Apple API
+    # rejection when the app has *no* existing prices (sets the now-removed
+    # `availableInNewTerritories` attribute on the apps resource). Set the
+    # Free tier once via App Store Connect → Pricing and Availability → Save,
+    # then drop a `price_tier.txt` into the app's `ios/metadata/` or into
+    # `fastlane_cli/ios/defaults/` to start letting the lane manage it.
+    price_tier = FastlaneCliConfig.read_price_tier(options, metadata_path: metadata_path)
+    app_rating_config_path = FastlaneCliConfig.resolve_app_rating_config_path(options)
+    submission_info_path, submission_info = FastlaneCliConfig.read_submission_information(options)
+
+    deliver_extra = {}
+    deliver_extra[:price_tier] = price_tier unless price_tier.nil?
+    deliver_extra[:app_rating_config_path] = app_rating_config_path unless app_rating_config_path.nil?
+    deliver_extra[:submission_information] = submission_info unless submission_info.empty?
+
+    UI.message("[update_metadata] price_tier=#{price_tier.inspect}")
+    UI.message("[update_metadata] app_rating_config_path=#{app_rating_config_path.inspect}")
+    UI.message("[update_metadata] submission_information_path=#{submission_info_path.inspect}")
+
+    begin
+      deliver(
+        {
+          submit_for_review: false,
+          automatic_release: false,
+          force: true,
+          skip_metadata: false,
+          skip_screenshots: !include_screenshots,
+          skip_binary_upload: true,
+          skip_app_version_update: false,
+          run_precheck_before_submit: false,
+          metadata_path: metadata_path,
+          screenshots_path: screenshots_path,
+          app_identifier: app_identifier
+        }.merge(auth_options).merge(deliver_extra)
+      )
+      UI.success("[update_metadata] deliver finished")
+    ensure
+      FastlaneCliConfig.restore_localised_fallbacks(fallback_restorable)
+      FastlaneCliConfig.restore_review_information(review_restorable)
+    end
+
+    # `submission_information.content_rights_contains_third_party_content` is
+    # only applied by deliver inside `submit_for_review`. We want it set when
+    # only updating metadata (so "Content Rights" stops blocking the review
+    # button), so push it directly via Spaceship after deliver finishes.
+    # Spaceship was logged in by deliver above; reuse its session.
+    content_rights_value = submission_info["content_rights_contains_third_party_content"]
+    if [true, false].include?(content_rights_value)
+      require "spaceship"
+      begin
+        app = Spaceship::ConnectAPI::App.find(app_identifier)
+        if app.nil?
+          UI.important("[update_metadata] App #{app_identifier} not found; skipping content rights update.")
+        else
+          decl = content_rights_value ?
+                   Spaceship::ConnectAPI::App::ContentRightsDeclaration::USES_THIRD_PARTY_CONTENT :
+                   Spaceship::ConnectAPI::App::ContentRightsDeclaration::DOES_NOT_USE_THIRD_PARTY_CONTENT
+          app.update(attributes: { contentRightsDeclaration: decl })
+          UI.success("[update_metadata] content rights set to #{decl}")
+        end
+      rescue => e
+        UI.error("[update_metadata] content rights update failed: #{e.class}: #{e.message}")
+        UI.error(e.backtrace.first(5).join("\n")) if e.backtrace
+      end
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · App Store metadata yüklendi",
+      [
+        "App identifier             : #{app_identifier}",
+        "Metadata path              : #{metadata_path}",
+        "Screenshots path           : #{screenshots_path}",
+        "Include screenshots        : #{include_screenshots}",
+        "Skip binary                : true (sadece metadata)",
+        "Price tier                 : #{price_tier.nil? ? '(boş — atlandı)' : price_tier}",
+        "Age rating config          : #{app_rating_config_path.nil? ? '(yok)' : app_rating_config_path}",
+        "Submission information     : #{submission_info_path.nil? ? '(yok)' : submission_info_path}",
+        "Content rights             : #{content_rights_value.nil? ? '(yok)' : content_rights_value}",
+        "URL fallbacks sprayed      : #{fallback_restorable.size} file(s) (then restored)",
+        "Review info fallbacks      : #{review_restorable.size} file(s) (then restored)"
+      ]
+    )
+  end
+
+  desc "Upload App Privacy Details (Apple's privacy nutrition label) to App Store Connect"
+  lane :upload_app_privacy_details do |options|
+    app_identifier = ios_app_identifier(options)
+    json_path = FastlaneCliConfig.resolve_app_privacy_details_path(options, must_exist: true)
+    UI.user_error!("App Privacy details JSON not found at #{json_path}") unless File.file?(json_path)
+
+    skip_publish = FastlaneCliConfig.bool_option(options, :skip_publish, default: false)
+    auth_options = resolve_app_store_connect_api_key(options)
+
+    # Workaround for fastlane#19781 / PR#20695 (still open as of 2.234.0).
+    # Vendored `upload_app_data_usages` deletes existing usages BEFORE creating
+    # new ones; Apple rejects each delete with "Your binary indicates that
+    # your app tracks users" when Info.plist contains NSUserTrackingUsageDescription
+    # and no tracking declaration exists at the moment of deletion.
+    #
+    # Patch flips it to CREATE-then-DELETE so the new tracking declaration is
+    # in place before the old one is removed.
+    unless Fastlane::Actions::UploadAppPrivacyDetailsToAppStoreAction
+             .respond_to?(:_ire_create_before_delete)
+      Fastlane::Actions::UploadAppPrivacyDetailsToAppStoreAction
+        .define_singleton_method(:_ire_create_before_delete) { true }
+      Fastlane::Actions::UploadAppPrivacyDetailsToAppStoreAction
+        .define_singleton_method(:upload_app_data_usages) do |params, app, usages_config|
+          FastlaneCore::UI.message(
+            "Preparing to upload App Data Usage (patched: create-then-delete for " \
+            "NSUserTrackingUsageDescription compatibility)"
+          )
+
+          existing = Spaceship::ConnectAPI::AppDataUsage.all(
+            app_id: app.id,
+            includes: "category,grouping,purpose,dataProtection",
+            limit: 500
+          )
+
+          # Build an O(1) lookup of existing (category, purpose, protection)
+          # tuples so we can:
+          #  - skip CREATE when a usage already exists (avoids "Resource
+          #    already exists" errors from partially-applied previous runs)
+          #  - track which existing rows we want to keep, so we only DELETE
+          #    those that aren't in the new config.
+          existing_key = ->(usage) {
+            [
+              usage.category&.id,
+              usage.purpose&.id,
+              usage.data_protection&.id
+            ]
+          }
+          existing_by_key = existing.each_with_object({}) do |usage, memo|
+            memo[existing_key.call(usage)] = usage
+          end
+
+          desired_keys = []
+          usages_config.each do |usage_config|
+            category = usage_config["category"]
+            purposes = usage_config["purposes"] || []
+            data_protections = usage_config["data_protections"] || []
+            purposes = [nil] if purposes.empty?
+
+            purposes.each do |purpose|
+              data_protections.each do |data_protection|
+                desired_keys << [category, purpose, data_protection]
+
+                if existing_by_key.key?([category, purpose, data_protection])
+                  FastlaneCore::UI.message(
+                    "Keeping existing usage: #{category} / #{purpose || '(no purpose)'} / #{data_protection}"
+                  )
+                  next
+                end
+
+                if data_protection == Spaceship::ConnectAPI::AppDataUsageDataProtection::ID::DATA_NOT_COLLECTED
+                  FastlaneCore::UI.message("Setting #{data_protection}")
+                else
+                  FastlaneCore::UI.message("Setting #{category} and #{purpose} to #{data_protection}")
+                end
+
+                begin
+                  Spaceship::ConnectAPI::AppDataUsage.create(
+                    app_id: app.id,
+                    app_data_usage_category_id: category,
+                    app_data_usage_protection_id: data_protection,
+                    app_data_usage_purpose_id: purpose
+                  )
+                rescue Spaceship::UnexpectedResponse => e
+                  if e.message.include?("already exists")
+                    FastlaneCore::UI.important(
+                      "Skipping create for #{category} / #{purpose} / #{data_protection}: #{e.message}"
+                    )
+                  else
+                    raise
+                  end
+                end
+              end
+            end
+          end
+
+          # Delete only the existing rows that aren't in the new config.
+          existing.each do |usage|
+            key = existing_key.call(usage)
+            next if desired_keys.include?(key)
+            begin
+              usage.delete!
+            rescue => e
+              FastlaneCore::UI.important(
+                "Could not delete old AppDataUsage #{usage.id} (#{key.join('/')}): #{e.message} (continuing)"
+              )
+            end
+          end
+
+          if params[:skip_publish]
+            FastlaneCore::UI.message("Skipping app data usage publishing... (so you can verify on App Store Connect)")
+          else
+            publish_state = Spaceship::ConnectAPI::AppDataUsagesPublishState.get(app_id: app.id)
+            if publish_state.published
+              FastlaneCore::UI.important("App data usage is already published")
+            else
+              FastlaneCore::UI.important("App data usage not published! Going to publish...")
+              publish_state.publish!
+              FastlaneCore::UI.important("App data usage is now published")
+            end
+          end
+        end
+    end
+
+    upload_app_privacy_details_to_app_store(
+      {
+        app_identifier: app_identifier,
+        json_path: json_path,
+        skip_publish: skip_publish
+      }.merge(auth_options)
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · App Privacy details yüklendi",
+      [
+        "App identifier : #{app_identifier}",
+        "JSON path      : #{json_path}",
+        "Skip publish   : #{skip_publish}",
+        "Auth strategy  : #{auth_options.keys.join(', ')}"
+      ]
+    )
+  end
+
+  desc "Download current App Privacy Details JSON from App Store Connect"
+  lane :download_app_privacy_details do |options|
+    app_identifier = ios_app_identifier(options)
+    output_json_path = FastlaneCliConfig.path_option(options, :output_json_path) ||
+                       File.expand_path("ios/app_privacy_details.downloaded.json",
+                                        FastlaneCliConfig.resolve_fastlane_root(options))
+    FileUtils.mkdir_p(File.dirname(output_json_path))
+    auth_options = resolve_app_store_connect_api_key(options)
+
+    download_app_privacy_details_from_app_store(
+      {
+        app_identifier: app_identifier,
+        output_json_path: output_json_path
+      }.merge(auth_options)
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · App Privacy details indirildi",
+      [
+        "App identifier : #{app_identifier}",
+        "Output path    : #{output_json_path}"
+      ]
+    )
+  end
+
+  desc "Upload iOS promotional metadata (what's new / promo text)"
+  lane :upload_metadata_promotion_whats_news do |options|
+    metadata_path = FastlaneCliConfig.resolve_path_in_fastlane(
+      options: options,
+      option_key: :metadata_path,
+      env_keys: %w[IOS_PROMOTION_METADATA_PATH FASTLANE_IOS_PROMOTION_METADATA_PATH],
+      default_relative: "ios/metadata_promotion_whats_news"
+    )
+    include_screenshots = FastlaneCliConfig.bool_option(options, :include_screenshots, default: false)
+    include_binary = FastlaneCliConfig.bool_option(options, :include_binary, default: false)
+
+    app_identifier = ios_app_identifier(options)
+
+    deliver(
+      force: true,
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_app_version_update: true,
+      metadata_path: metadata_path,
+      app_identifier: app_identifier
+
+    )
+
+    locales = []
+    if Dir.exist?(metadata_path)
+      locales = Dir.children(metadata_path).select do |entry|
+        File.directory?(File.join(metadata_path, entry)) &&
+          !entry.start_with?(".") &&
+          !FastlaneCliConfig::METADATA_NON_LOCALE_DIRS.include?(entry)
+      end.sort
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · Promotional metadata yüklendi",
+      [
+        "App identifier      : #{app_identifier}",
+        "Metadata path       : #{metadata_path}",
+        "Locales             : #{locales.empty? ? '(none)' : locales.join(', ')}",
+        "Include screenshots : #{include_screenshots}",
+        "Include binary      : #{include_binary}"
+      ]
+    )
+  end
+
+  desc "Download App Store metadata into fastlane path"
+  lane :download_metadata do |options|
+    app_identifier = ios_app_identifier(options)
+    metadata_path = FastlaneCliConfig.resolve_path_in_fastlane(
+      options: options,
+      option_key: :metadata_path,
+      env_keys: %w[IOS_METADATA_PATH FASTLANE_IOS_METADATA_PATH],
+      default_relative: "ios/metadata"
+    )
+
+    run_deliver_download(
+      command: "download_metadata",
+      app_identifier: app_identifier,
+      path_flag: "metadata_path",
+      target_path: metadata_path
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · App Store metadata indirildi",
+      [
+        "App identifier : #{app_identifier}",
+        "Hedef klasör   : #{metadata_path}"
+      ]
+    )
+  end
+
+  desc "Download App Store screenshots into fastlane path"
+  lane :download_screenshots do |options|
+    app_identifier = ios_app_identifier(options)
+    screenshots_path = FastlaneCliConfig.resolve_path_in_fastlane(
+      options: options,
+      option_key: :screenshots_path,
+      env_keys: %w[IOS_SCREENSHOTS_PATH FASTLANE_IOS_SCREENSHOTS_PATH],
+      default_relative: "ios/screenshots"
+    )
+
+    run_deliver_download(
+      command: "download_screenshots",
+      app_identifier: app_identifier,
+      path_flag: "screenshots_path",
+      target_path: screenshots_path
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · App Store screenshots indirildi",
+      [
+        "App identifier : #{app_identifier}",
+        "Hedef klasör   : #{screenshots_path}"
+      ]
+    )
+  end
+
+  # Resolves the recent TestFlight builds for an app as an array of normalized
+  # build Hashes (see PromoteHelpers.normalize_build). Uses Spaceship's
+  # ConnectAPI directly — there is no fastlane action that lists builds with
+  # the fields the picker needs. Newest build first.
+  #
+  # `limit` caps how many builds are fetched (default 20). Returns [] when the
+  # app or its builds can't be resolved; the lane decides how to react.
+  private_lane :fetch_testflight_builds do |options|
+    require "spaceship"
+
+    app_identifier = options[:app_identifier].to_s.strip
+    UI.user_error!("app_identifier is required") if app_identifier.empty?
+    limit = (options[:limit] || 20).to_i
+    limit = 20 if limit <= 0
+
+    app = Spaceship::ConnectAPI::App.find(app_identifier)
+    UI.user_error!("App not found on App Store Connect: #{app_identifier}") if app.nil?
+
+    builds = Spaceship::ConnectAPI::Build.all(
+      app_id: app.id,
+      sort: "-uploadedDate",
+      includes: "preReleaseVersion,appStoreVersion",
+      limit: limit
+    )
+
+    Array(builds).map do |build|
+      pre_release = begin
+        build.pre_release_version
+      rescue StandardError
+        nil
+      end
+      attached = begin
+        !build.app_store_version.nil?
+      rescue StandardError
+        false
+      end
+
+      PromoteHelpers.normalize_build(
+        build_number: build.version,
+        version: pre_release&.version,
+        uploaded_date: build.uploaded_date,
+        processing_state: build.processing_state,
+        attached: attached
+      )
+    end
+  end
+
+  desc "Promote an existing TestFlight build to App Store review (no re-upload)"
+  lane :promote_to_app_store do |options|
+    # 1. Auth — App Store submission MUST be API-key driven. We do NOT fall
+    #    back to interactive Apple ID here: a half-interactive submission is
+    #    worse than a clear failure.
+    auth_options = resolve_app_store_connect_api_key(options)
+    if auth_options.empty?
+      UI.user_error!(
+        "promote_to_app_store requires an App Store Connect API key.\n" \
+        "   Set one of:\n" \
+        "     • APP_STORE_CONNECT_API_KEY_JSON_PATH (path to JSON with key_id/issuer_id/key)\n" \
+        "     • APP_STORE_CONNECT_API_KEY_ID + _ISSUER_ID + _FILEPATH (path to AuthKey.p8)\n" \
+        "   Interactive Apple ID login is intentionally not supported for App Store submission."
+      )
+    end
+
+    app_identifier = ios_app_identifier(options)
+
+    submit_metadata = FastlaneCliConfig.bool_option(options, :submit_metadata, default: false)
+    submit_screenshots = FastlaneCliConfig.bool_option(options, :submit_screenshots, default: false)
+    automatic_release = FastlaneCliConfig.bool_option(options, :automatic_release, default: false)
+
+    # 2/3. Resolve the build number — either via the non-interactive
+    #      `build_number:` override, or by listing + prompting.
+    override_build = FastlaneCliConfig.option_or_env(options, :build_number, [])
+    selected_build = nil
+    selected_version = nil
+    selected_state = nil
+
+    if !FastlaneCliConfig.blank?(override_build)
+      selected_build = override_build.to_s.strip
+      UI.message("➡️  build_number override supplied — skipping interactive picker: #{selected_build}")
+      # Best-effort enrichment so the summary box can show the version/state.
+      begin
+        builds = fetch_testflight_builds(app_identifier: app_identifier)
+        match = PromoteHelpers.find_build_by_number(builds, selected_build)
+        if match
+          selected_version = match[:version]
+          selected_state = match[:processing_state]
+          unless match[:valid]
+            UI.important(
+              "⚠️ Build #{selected_build} is in state #{match[:processing_state]} " \
+              "(not VALID). deliver may reject the submission."
+            )
+          end
+        else
+          UI.important("⚠️ Build #{selected_build} not found in the recent TestFlight build list; submitting anyway.")
+        end
+      rescue => e
+        UI.important("⚠️ Could not enrich build #{selected_build} from App Store Connect: #{e.message}")
+      end
+    else
+      builds = fetch_testflight_builds(app_identifier: app_identifier)
+      UI.user_error!("No TestFlight builds found for #{app_identifier}.") if builds.empty?
+
+      UI.message("📦 Recent TestFlight builds for #{app_identifier}:")
+      builds.each_with_index do |build, idx|
+        UI.message(PromoteHelpers.format_build_line(idx + 1, build))
+      end
+
+      # Print the selection prompt in EXACTLY the shape the fastlane_cli
+      # `chooseIndex` parser expects (`Please choose:?\s*(\d+)\s*-\s*(\d+)`).
+      # In the TUI this pops a selection modal; in a plain terminal the user
+      # types the number. PromoteHelpers.choose_prompt locks the format.
+      prompt = PromoteHelpers.choose_prompt(builds.size)
+      UI.message(prompt)
+
+      raw_choice = STDIN.gets
+      UI.user_error!("No selection received (stdin closed).") if raw_choice.nil?
+
+      begin
+        selected_build = PromoteHelpers.build_number_for_index(builds, raw_choice.strip)
+      rescue ArgumentError => e
+        UI.user_error!("Invalid selection: #{e.message}")
+      end
+
+      chosen = PromoteHelpers.find_build_by_number(builds, selected_build)
+      if chosen
+        selected_version = chosen[:version]
+        selected_state = chosen[:processing_state]
+        unless chosen[:valid]
+          UI.important(
+            "⚠️ Selected build #{selected_build} is #{chosen[:processing_state]} (not VALID). " \
+            "deliver may reject the submission."
+          )
+        end
+      end
+    end
+
+    UI.user_error!("Could not resolve a build number to promote.") if FastlaneCliConfig.blank?(selected_build)
+
+    # IDFA / export-compliance answers — required by deliver inside
+    # `submit_for_review` (same as the `app_store` lane).
+    submission_info_path, submission_info = FastlaneCliConfig.read_submission_information(options)
+
+    # 4. Submit for App Store review — binary already on TestFlight, so
+    #    skip_binary_upload. Metadata + screenshots skipped by default; this
+    #    lane promotes a build, it does not re-push the store listing.
+    upload_to_app_store(
+      {
+        app_identifier: app_identifier,
+        build_number: selected_build.to_s,
+        skip_binary_upload: true,
+        skip_metadata: !submit_metadata,
+        skip_screenshots: !submit_screenshots,
+        submit_for_review: true,
+        automatic_release: automatic_release,
+        force: true,
+        precheck_include_in_app_purchases: false,
+        submission_information: submission_info
+      }.merge(auth_options)
+    )
+
+    # Best-effort: read back the resulting App Store version state.
+    version_state = "(bilinmiyor)"
+    begin
+      require "spaceship"
+      app = Spaceship::ConnectAPI::App.find(app_identifier)
+      if app
+        latest = app.get_app_store_versions(
+          filter: { platform: Spaceship::ConnectAPI::Platform::IOS },
+          includes: nil,
+          limit: 1,
+          sort: "-createdDate"
+        ).first
+        if latest
+          version_state = [
+            latest.version_string,
+            FastlaneCliConfig.blank?(latest.app_store_state) ? nil : latest.app_store_state
+          ].compact.join(" / ")
+        end
+      end
+    rescue => e
+      UI.important("⚠️ Could not read back App Store version state: #{e.message}")
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · TestFlight build App Store'a gönderildi",
+      [
+        "App identifier      : #{app_identifier}",
+        "Seçilen build       : #{selected_build}#{selected_version ? " (#{selected_version})" : ''}",
+        "Build durumu        : #{selected_state || '(bilinmiyor)'}",
+        "Seçim modu          : #{FastlaneCliConfig.blank?(override_build) ? 'interaktif (Please choose)' : 'build_number override'}",
+        "Binary upload       : atlandı (zaten TestFlight'ta)",
+        "Submit for review   : true",
+        "Automatic release   : #{automatic_release}",
+        "Metadata            : #{submit_metadata ? 'gönderildi' : 'atlandı'}",
+        "Screenshots         : #{submit_screenshots ? 'gönderildi' : 'atlandı'}",
+        "Submission info     : #{submission_info_path.nil? ? '(yok)' : submission_info_path}",
+        "Auth strategy       : #{auth_options.keys.join(', ')}",
+        "App Store sürümü    : #{version_state}"
+      ]
+    )
+  end
+end

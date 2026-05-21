@@ -1,0 +1,32 @@
+# frozen_string_literal: true
+#
+# Slim Gemfile for storepilot_bridge.rb only.
+#
+# Lanes (Fastfile, ios/Fastfile, android/Fastfile) DO NOT use this bundle —
+# they run against the system / brew-installed `fastlane` gem.
+#
+# This Gemfile exists for the bridge process (`bundle exec ruby
+# storepilot_bridge.rb`), which needs Google auth + Play API client to talk
+# to Play Developer Reporting. `spaceship` / `supply` (used by the bridge as
+# well) are loaded from the system `fastlane` gem at require-time.
+#
+# Bundle install location is NOT this directory — the Dart CLI sets
+# BUNDLE_PATH to a user-level cache (see lib/src/services/bundle_cache.dart
+# and ROADMAP §2). Do not commit a `vendor/bundle` next to this file.
+
+source "https://rubygems.org"
+
+gem "googleauth"
+gem "google-apis-androidpublisher_v3"
+
+# Test-only deps. The release tarball does NOT ship fastlane/spec/ or
+# fastlane/.rspec (see .github/workflows/release.yml stage step), so end
+# users do not run RSpec. For production installs the Dart CLI bundle
+# wrapper should call `bundle install --without test` (or set
+# `BUNDLE_WITHOUT=test`) to skip these — once the user-cache bundler work
+# in ROADMAP §2 lands. From inside this directory, plain `bundle install`
+# pulls them in for local development.
+group :test do
+  gem "rspec", "~> 3.13"
+  gem "webmock", "~> 3.23"
+end

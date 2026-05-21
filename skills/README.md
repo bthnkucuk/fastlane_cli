@@ -1,0 +1,49 @@
+# skills/
+
+Bundled Claude Code / Cursor skills that ship with `fastlane_cli`. Each
+subdirectory contains a single `SKILL.md` with frontmatter
+(`name`, `description` including trigger keywords) and an instruction body
+for the assistant.
+
+The `fastlane_cli skills install` subcommand copies this tree into the
+consumer's local Claude config (`<cwd>/.claude/skills/` by default, or
+`~/.claude/skills/` with `--global`). This directory remains the canonical
+source.
+
+The repo's `.claude/skills` is a symlink to this directory so the same
+tree auto-loads when Claude Code runs inside the fastlane_cli repo
+itself — single source of truth, no duplication.
+
+## Index
+
+| Skill                                                                  | One-liner                                                                                              |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [`fastlane-cli-setup`](fastlane-cli-setup/SKILL.md)                    | Scaffold a fresh `profile.yaml` and required credential env vars for a Flutter project.            |
+| [`fastlane-cli-run`](fastlane-cli-run/SKILL.md)                        | Translate a natural-language intent into `fastlane_cli run <action-id>` via runtime action discovery.  |
+| [`fastlane-version-bump`](fastlane-version-bump/SKILL.md)              | Inspect or bump pubspec `version: X.Y.Z+N` and reconcile it with the stores.                            |
+| [`fastlane-cli-version-bump`](fastlane-cli-version-bump/SKILL.md)      | Bump fastlane_cli's *own* `pubspec.yaml` + formula version per conventional-commits rules when shipping a PR. |
+| [`fastlane-metadata-sync`](fastlane-metadata-sync/SKILL.md)            | Pull / push App Store and Play store listing text + screenshots + App Privacy.                          |
+| [`fastlane-testflight`](fastlane-testflight/SKILL.md)                  | iOS TestFlight release flow — credentials, version handling, canonical action ids.                      |
+| [`fastlane-appstore-promote`](fastlane-appstore-promote/SKILL.md)      | Promote an already-uploaded TestFlight build to App Store review — interactive picker, no re-upload.     |
+| [`fastlane-play-internal`](fastlane-play-internal/SKILL.md)            | Android Play Console internal-track release flow — service account, version handling, action ids.       |
+| [`fastlane-doctor`](fastlane-doctor/SKILL.md)                          | Diagnose env / credential / toolchain issues before invoking a lane.                                    |
+| [`fastlane-crashlytics-symbols`](fastlane-crashlytics-symbols/SKILL.md) | Upload iOS dSYMs, Android NDK symbols, and Flutter Dart-obfuscation symbols to Firebase Crashlytics (one `upload_symbols` flag).|
+| [`fastlane-cli-layout`](fastlane-cli-layout/SKILL.md)                  | Non-standard fastlane folder / profile locations — `root_path`, `fastlane_path`, profile discovery.     |
+| [`fastlane-target-flavor`](fastlane-target-flavor/SKILL.md)            | Resolve Flutter `--target lib/main_*.dart` and `--flavor` for build lanes (option → env → flavor convention). |
+| [`fastlane-summary-log`](fastlane-summary-log/SKILL.md)                | Author the mandatory coloured summary box at the end of every user-facing lane / bridge command.        |
+
+## Authoring rules
+
+- The frontmatter `name` is kebab-case and matches the directory name.
+- The `description` is a single sentence that ends with
+  `Triggers on: <comma-separated keywords>`. Triggers should not ambiguously
+  overlap across skills (e.g. "testflight" fires only `fastlane-testflight`).
+- Body content references real action ids from
+  [`fastlane/profile.base.yaml`](../fastlane/profile.base.yaml) and
+  real lane names from
+  [`fastlane/ios/Fastfile`](../fastlane/ios/Fastfile) /
+  [`fastlane/android/Fastfile`](../fastlane/android/Fastfile) /
+  [`fastlane/Fastfile`](../fastlane/Fastfile). No invented ids.
+- Env vars are referenced exactly as documented in
+  [`CLAUDE.md`](../CLAUDE.md) §5.3 and the Fastfile headers.
+- No app-specific values (no real bundle ids, app names, or API keys).

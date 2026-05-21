@@ -1,0 +1,43 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+pubspec.lock
+doc/api/
+
+# Coverage
+coverage/
+
+# IDE
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.json
+*.code-workspace
+
+# macOS
+.DS_Store
+
+# Fastlane (bundle install output — user-cache once brew install lands)
+fastlane/vendor/
+fastlane/.bundle/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/
+.claude/worktrees/
+# Machine-local Claude Code permissions — never version (contains
+# user-specific paths). Project-shared config goes in .claude/settings.json.
+.claude/settings.local.json
+
+# FVM Version Cache
+.fvm/
+
+# Release build artifacts — produced locally by `dart compile exe` + tar.
+# Only the compiled binary and tarballs; dist/homebrew/ stays tracked.
+dist/fastlane_cli
+dist/*.tar.gz
+
+# Pre-push leak guard — the real forbidden-substring blocklist is local-only
+# (contains brand/personal names that must never reach this public repo).
+# Each contributor copies it from .githooks/blocklist.example.
+.githooks/blocklist

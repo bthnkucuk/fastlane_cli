@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  # The fastlane_cli code itself is pure Dart, but it depends on
+  # zenrouter_nocterm (git dep) whose pubspec declares an `sdk: flutter`
+  # constraint. dart pub get refuses to resolve it without the Flutter
+  # toolchain on PATH — so we install Flutter (Dart comes bundled).
+  FLUTTER_VERSION: "3.41.9"
+  # Opt every JavaScript action into Node.js 24 ahead of GitHub's forced
+  # rollout (June 2026). Removes the deprecation banner now and avoids
+  # surprises when older actions get auto-upgraded.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  test:
+    name: Analyze + Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Flutter (provides Dart)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache pub-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-flutter-${{ env.FLUTTER_VERSION }}-${{ hashFiles('pubspec.yaml') }}
+          restore-keys: |
+            pub-${{ runner.os }}-flutter-${{ env.FLUTTER_VERSION }}-
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Analyze
+        run: dart analyze
+
+      - name: Run tests with coverage
+        # `--test=test` pins the runner to the FULL test/ tree (e2e included).
+        # It is also the coverage package's current default, but stating it
+        # explicitly guarantees the complete suite runs regardless of a future
+        # coverage-package default change or a stray coverage_options.yaml.
+        # No --tags / --exclude-tags: every file, including the `perf`-tagged
+        # benchmark, runs and a single failure fails the job (non-zero exit
+        # from the spawned `dart run ... test` propagates).
+        run: dart run coverage:test_with_coverage --test=test
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lcov
+          path: coverage/lcov.info
+          retention-days: 7
+
+  ruby_test:
+    # Pure-Ruby specs for fastlane/common_helpers.rb + fastlane/storepilot_bridge.rb.
+    # Runs in parallel with the Dart job so a Ruby regression surfaces immediately
+    # rather than waiting for the Dart suite to finish.
+    #
+    # Matrix on ruby-version: 3.2 is the floor enforced by `fastlane_cli doctor`
+    # (and brew install's depends_on "fastlane" pulls a Ruby that's typically
+    # newer). Adding 3.3 and 3.4 catches forward-incompat early.
+    name: Ruby specs (ruby ${{ matrix.ruby }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["3.2", "3.3", "3.4"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Ruby ${{ matrix.ruby }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          working-directory: fastlane
+          bundler-cache: true
+
+      - name: Run RSpec
+        working-directory: fastlane
+        run: bundle exec rspec
+
+  coverage:
+    name: Coverage badge
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # The badge is a gist-backed shields.io endpoint badge. The job writes a
+    # tiny JSON blob to a public gist (schneegans/dynamic-badges-action); it
+    # never commits to this repo and never opens a PR, so branch protection
+    # is irrelevant here. Least privilege: only needs to read the repo.
+    permissions:
+      contents: read
+    env:
+      # Declared at job level so linters can resolve ${{ env.COVERAGE_* }}
+      # in the badge step. The actual values are written into GITHUB_ENV by
+      # the "Compute coverage percentage" step.
+      COVERAGE_PERCENT: ""
+      COVERAGE_COLOR: ""
+    steps:
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: lcov
+          path: coverage
+
+      - name: Compute coverage percentage
+        run: |
+          LCOV_INFO="coverage/lcov.info"
+
+          total_lines=$(grep -o "LF:[0-9]*" "$LCOV_INFO" | cut -d: -f2 | awk '{s+=$1} END {print s}')
+          covered_lines=$(grep -o "LH:[0-9]*" "$LCOV_INFO" | cut -d: -f2 | awk '{s+=$1} END {print s}')
+
+          if [ -z "$total_lines" ] || [ "$total_lines" -eq 0 ]; then
+            percent=0
+          else
+            percent=$(awk "BEGIN {printf \"%.1f\", $covered_lines * 100 / $total_lines}")
+          fi
+
+          echo "Coverage: $percent%"
+
+          if (( $(echo "$percent < 50" | bc -l) )); then
+            color="red"
+          elif (( $(echo "$percent < 80" | bc -l) )); then
+            color="yellow"
+          else
+            color="brightgreen"
+          fi
+
+          echo "COVERAGE_PERCENT=$percent" >> $GITHUB_ENV
+          echo "COVERAGE_COLOR=$color" >> $GITHUB_ENV
+
+      # Writes {schemaVersion,label,message,color} into the gist file the
+      # README's shields.io endpoint badge points at. continue-on-error so
+      # CI stays green until the maintainer adds the GIST_TOKEN secret (a
+      # PAT with the `gist` scope) — without it this step fails by design.
+      - name: Publish coverage badge to gist
+        id: badge
+        continue-on-error: true
+        uses: schneegans/dynamic-badges-action@v1
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: 0538334b34cc8408d52d5e058d12be05
+          filename: fastlane_cli-coverage.json
+          label: coverage
+          message: ${{ env.COVERAGE_PERCENT }}%
+          color: ${{ env.COVERAGE_COLOR }}
+
+      - name: Warn if badge publish failed
+        if: steps.badge.outcome == 'failure'
+        run: |
+          echo "::warning::Coverage badge gist update failed. Add a repo secret named GIST_TOKEN (a PAT with only the 'gist' scope) so this step can write to the badge gist."

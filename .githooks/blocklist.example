@@ -1,0 +1,23 @@
+# pre-push leak guard — forbidden-substring blocklist (TEMPLATE)
+# ==============================================================
+# Copy this file to .githooks/blocklist (which is gitignored) and add one
+# forbidden term per line. The pre-push hook treats every non-empty,
+# non-comment line as a CASE-INSENSITIVE substring; if any term appears in an
+# added diff line or a commit message, the push is blocked.
+#
+#   cp .githooks/blocklist.example .githooks/blocklist
+#   # then edit .githooks/blocklist with your real terms
+#
+# Why external + gitignored: this repo is PUBLIC. Hardcoding real brand or
+# personal names in a versioned file would itself leak them. Keep the real
+# list local-only.
+#
+# Lines starting with # are comments. Blank lines are ignored.
+#
+# Put the consumer brand names, internal project codenames, personal names,
+# emails, and anything else app-specific that must never reach the public
+# history here. Generic examples only below — replace them:
+
+acme
+johndoe
+mycompany
