@@ -39,7 +39,7 @@ The only base actions that bump pubspec are:
 
 | Action id                       | Lane (top-level)  | What it does                                                                |
 | ------------------------------- | ----------------- | --------------------------------------------------------------------------- |
-| `internal_test`                 | `internal_test`   | Bumps pubspec (patch + build), then builds + uploads for *both* platforms.   |
+| `internal_test`                 | `internal_test`   | Bumps pubspec (component-wise-max + `bump` level), then builds + uploads for *both* platforms. |
 | `android_internal_bump_deploy`  | `internal_test` (`platform: android`) | Same bump, Android only → Play internal track.                              |
 | `ios_internal_bump_deploy`      | `internal_test` (`platform: ios`)     | Same bump, iOS only → TestFlight.                                           |
 | `android_internal_no_bump_deploy` | `internal_test` (`platform: android`, `skip_bump: "true"`) | Builds + uploads current pubspec version — does **not** bump.               |
@@ -50,11 +50,56 @@ are the `platform` and `skip_bump` options.
 
 ### How the bump is computed
 
-- pubspec `version: X.Y.Z+N` is parsed.
-- `Z` (patch) is incremented by 1.
-- `N` (build number) is set to `max(android_play_version_code, ios_build_number, pubspec_build_number) + 1`.
-  The actual rule and the source of each piece is printed in the lane's
-  summary box — quote that, don't reverse-engineer it.
+As of v0.7.0 the bump is **component-wise-max aware** across all three
+version sources (Android Play, iOS App Store, local pubspec). It no longer
+picks the single highest semver and bumps that — instead each component is
+maximised independently, so the new version is strictly ahead of *every*
+source on *every* axis.
+
+Given each source's `MAJOR.MINOR.PATCH+BUILD`:
+
+1. Component-wise maximum, computed independently:
+   - `max_major = max(major of android, ios, pubspec)`
+   - `max_minor = max(minor of android, ios, pubspec)`
+   - `max_patch = max(patch of android, ios, pubspec)`
+   - `max_build = max(build of android, ios, pubspec)`
+2. Apply the `bump` level (default `patch`):
+   - `patch` → `max_major . max_minor . (max_patch + 1)`
+   - `minor` → `max_major . (max_minor + 1) . 0`
+   - `major` → `(max_major + 1) . 0 . 0`
+3. Build number → always `max_build + 1`, regardless of bump level.
+4. Final version = `<version>+<build>`.
+
+Worked example — sources `1.2.3+400`, `1.2.4+399`, `2.3.1+100`:
+
+| `bump`  | result      |
+| ------- | ----------- |
+| `patch` | `2.3.5+401` |
+| `minor` | `2.4.0+401` |
+| `major` | `3.0.0+401` |
+
+(patch `5` because `max(3,4,1)=4`, then `+1`; build `401` because
+`max(400,399,100)=400`, then `+1`.)
+
+A source that is `unknown|0` (store unreachable / app not yet published
+there) contributes `0.0.0+0` to the maxes — it never blocks the
+computation. The bump always moves the version *forward*, even if the
+local pubspec is already ahead of both stores.
+
+The actual rule, the three source versions, the component-wise maxes, the
+chosen `bump` level, and the final `version+build` are all printed in the
+lane's summary box — quote that, don't reverse-engineer it.
+
+### The `bump` option
+
+- `bump` selects the level: `patch` (default) / `minor` / `major`.
+- Set it per-action in the profile (`command.options.bump`) or
+  per-invocation: `fastlane_cli run internal_test --option bump=minor`.
+- An invalid value fails fast with an error listing the three accepted
+  values.
+- Flows through `internal_test` and therefore `ios_internal_bump_deploy` /
+  `android_internal_bump_deploy`. The `*_no_bump_deploy` variants ignore
+  it — they do not bump at all.
 
 ### Confirmation
 

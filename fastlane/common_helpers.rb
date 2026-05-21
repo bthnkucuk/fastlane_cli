@@ -986,4 +986,147 @@ module FastlaneCliConfig
       end
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Version bump computation (pure)
+  # ---------------------------------------------------------------------------
+  # The version-bump algorithm is component-wise-max aware across all three
+  # version sources (Android Play, iOS App Store, local pubspec). Rather than
+  # picking the single highest semver and bumping it — which loses the fact
+  # that a *different* source may have reached a higher value on some other
+  # component — we take the maximum of each component independently. The
+  # resulting version is therefore strictly ahead of EVERY source on EVERY
+  # axis: no store can be "ahead" of the new version on a component the
+  # chosen base would have ignored.
+  #
+  # All functions below are PURE — no file/network I/O — so they are fully
+  # unit-testable in isolation.
+
+  ACCEPTED_BUMP_LEVELS = %i[patch minor major].freeze
+
+  # Parse a `MAJOR.MINOR.PATCH` (with optional `+BUILD`) string into integer
+  # components. Tolerates:
+  #   * a missing `+BUILD` suffix (build defaults to 0),
+  #   * surrounding whitespace,
+  #   * an inline `# comment` trailing the version (the v0.3.2 pubspec regex
+  #     fix), e.g. `1.2.3+45  # do not edit`.
+  # A `nil`, blank, `"unknown"`, or `"0"` value is treated as `0.0.0+0` so a
+  # not-yet-published / unreachable store does not block the computation.
+  # Any other malformed input (non-numeric component, missing component)
+  # raises an ArgumentError with a clear message.
+  #
+  # Returns a hash: { major:, minor:, patch:, build: } (all Integers).
+  def parse_version_components(raw)
+    text = raw.to_s.strip
+    # Strip an inline `# comment` (mirrors the v0.3.2 pubspec regex).
+    text = text.sub(/\s+#.*\z/, "").strip
+
+    # Unknown / unpublished / unreachable source → contributes zeros.
+    return { major: 0, minor: 0, patch: 0, build: 0 } if text.empty? ||
+                                                         text.casecmp?("unknown") ||
+                                                         text == "0"
+
+    match = text.match(/\A(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?\z/)
+    unless match
+      raise ArgumentError,
+            "Invalid version string #{raw.inspect} — expected MAJOR.MINOR.PATCH[+BUILD] with integer components"
+    end
+
+    {
+      major: match[1].to_i,
+      minor: match[2].to_i,
+      patch: match[3].to_i,
+      build: (match[4] || "0").to_i
+    }
+  end
+
+  # Normalise a bump level to one of :patch / :minor / :major. Raises an
+  # ArgumentError listing the accepted values on anything else.
+  def normalize_bump_level(bump)
+    level = bump.to_s.strip.downcase
+    level = "patch" if level.empty?
+    sym = level.to_sym
+    unless ACCEPTED_BUMP_LEVELS.include?(sym)
+      raise ArgumentError,
+            "Invalid bump level #{bump.inspect} — accepted values: patch, minor, major"
+    end
+    sym
+  end
+
+  # Compute the next version using the component-wise-max algorithm.
+  #
+  #   sources : an Array of source version strings, OR an Array of hashes
+  #             shaped { version: "X.Y.Z", build: N } / { version: "X.Y.Z+N" }.
+  #             Each source is parsed into components; unknown/0 → 0.0.0+0.
+  #   bump    : :patch (default) / :minor / :major (also accepts strings).
+  #
+  # Algorithm:
+  #   1. max_major/minor/patch/build = component-wise max across all sources.
+  #   2. patch bump → max_major . max_minor . (max_patch + 1)
+  #      minor bump → max_major . (max_minor + 1) . 0
+  #      major bump → (max_major + 1) . 0 . 0
+  #   3. build_number = max_build + 1 (always, regardless of bump level).
+  #
+  # Returns { version_name:, build_number:, full:, maxes: }.
+  def resolve_bumped_version(sources:, bump: :patch)
+    level = normalize_bump_level(bump)
+
+    parsed = Array(sources).map do |source|
+      if source.is_a?(Hash)
+        version = source[:version] || source["version"]
+        build = source[:build] || source["build"]
+        components = parse_version_components(version)
+        # An explicit `build:` overrides any `+BUILD` parsed from `version`.
+        unless build.nil? || build.to_s.strip.empty?
+          components = components.merge(build: parse_build_component(build))
+        end
+        components
+      else
+        parse_version_components(source)
+      end
+    end
+    parsed = [{ major: 0, minor: 0, patch: 0, build: 0 }] if parsed.empty?
+
+    max_major = parsed.map { |c| c[:major] }.max
+    max_minor = parsed.map { |c| c[:minor] }.max
+    max_patch = parsed.map { |c| c[:patch] }.max
+    max_build = parsed.map { |c| c[:build] }.max
+
+    version_name = case level
+                   when :major
+                     "#{max_major + 1}.0.0"
+                   when :minor
+                     "#{max_major}.#{max_minor + 1}.0"
+                   else
+                     "#{max_major}.#{max_minor}.#{max_patch + 1}"
+                   end
+
+    build_number = max_build + 1
+
+    {
+      version_name: version_name,
+      build_number: build_number,
+      full: "#{version_name}+#{build_number}",
+      bump: level,
+      maxes: {
+        major: max_major,
+        minor: max_minor,
+        patch: max_patch,
+        build: max_build
+      }
+    }
+  end
+
+  # Parse a standalone build-number value (the `build:` field of a source
+  # hash). Tolerates an inline comment / blank → 0; raises on non-numeric.
+  def parse_build_component(raw)
+    text = raw.to_s.strip.sub(/\s+#.*\z/, "").strip
+    return 0 if text.empty? || text.casecmp?("unknown")
+
+    unless text.match?(/\A\d+\z/)
+      raise ArgumentError, "Invalid build number #{raw.inspect} — expected a non-negative integer"
+    end
+
+    text.to_i
+  end
 end
