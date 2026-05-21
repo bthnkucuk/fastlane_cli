@@ -68,7 +68,11 @@ class ProfileLoader {
 
     final supportedLocales = _parseSupportedLocales(root, defaultLocale);
     final categories = _parseCategories(_requireList(root, 'categories'));
-    final actions = _parseActions(_requireList(root, 'actions'));
+    final defaultOptions = _parseDefaultOptions(root['default_options']);
+    final actions = _applyDefaultOptions(
+      _parseActions(_requireList(root, 'actions')),
+      defaultOptions,
+    );
     final shortcuts = _parseStringList(root['shortcuts']);
 
     _validateProfileConsistency(categories, actions, shortcuts);
@@ -321,6 +325,76 @@ class ProfileLoader {
       );
     }
     return actions;
+  }
+
+  /// Parses the optional top-level `default_options` block — a flat map of
+  /// option key → scalar value applied to every command action. Absent or
+  /// `null` yields an empty map (no-op). A non-map value, or any nested
+  /// map / list value, is rejected with a [FormatException] so the consumer
+  /// gets a clear error instead of a silently-stringified `{...}`.
+  Map<String, String> _parseDefaultOptions(Object? value) {
+    if (value == null) {
+      return const <String, String>{};
+    }
+    if (value is! Map) {
+      throw FormatException(
+        '"default_options" must be a map of string option values, '
+        'got ${value.runtimeType}.',
+      );
+    }
+    final parsed = <String, String>{};
+    for (final entry in value.entries) {
+      final key = entry.key.toString();
+      final optionValue = entry.value;
+      if (optionValue is Map || optionValue is List) {
+        throw FormatException(
+          '"default_options.$key" must be a scalar value, '
+          'got ${optionValue.runtimeType}.',
+        );
+      }
+      parsed[key] = optionValue == null ? '' : optionValue.toString();
+    }
+    return parsed;
+  }
+
+  /// Folds [defaultOptions] underneath every command action's own
+  /// `command.options`. Per-action options win on key collision. Actions
+  /// whose command carries no options (e.g. `flutter` / `dart` / `custom`)
+  /// are left untouched. Returns a fresh list; the input is not mutated.
+  List<CliAction> _applyDefaultOptions(
+    List<CliAction> actions,
+    Map<String, String> defaultOptions,
+  ) {
+    if (defaultOptions.isEmpty) {
+      return actions;
+    }
+    return actions.map((action) {
+      final command = action.command;
+      // Only fastlane commands carry an options map; other command types
+      // ignore options entirely, so injecting defaults there would be dead
+      // weight. Skip them to keep the resolved action minimal.
+      if (command.type != ActionCommandType.fastlane) {
+        return action;
+      }
+      return CliAction(
+        id: action.id,
+        categoryId: action.categoryId,
+        title: action.title,
+        description: action.description,
+        command: CliActionCommand(
+          type: command.type,
+          platform: command.platform,
+          lane: command.lane,
+          options: <String, String>{...defaultOptions, ...command.options},
+          arguments: command.arguments,
+          executable: command.executable,
+        ),
+        preflightChecks: action.preflightChecks,
+        shortcut: action.shortcut,
+        requiresConfirmation: action.requiresConfirmation,
+        requiresOverwriteConfirmation: action.requiresOverwriteConfirmation,
+      );
+    }).toList();
   }
 
   Map<AppLocale, String> _parseLocalizedField(

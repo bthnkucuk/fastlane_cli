@@ -82,6 +82,41 @@ Identifiers (bundle id, package name) are **not** in the YAML — they're
 passed via env or per-action `command.options`. See
 [Credentials](#credentials).
 
+### `default_options` — same options on every lane
+
+When a per-app / per-flavor profile needs the **same extra command options on
+every lane** (the classic case: a Flutter flavor whose entry point is
+`lib/main_<flavor>.dart`), declare a single top-level `default_options:` map
+instead of re-declaring every base action just to append two keys:
+
+```yaml
+app:
+  name: narravo
+  root_path: ..
+
+default_options:
+  flavor: narravo
+  target: lib/main_narravo.dart
+```
+
+`default_options` is a flat map of `key: value` scalar strings, a sibling of
+`app`, `actions`, `categories`, `shortcuts`. It is folded **underneath** every
+command action's own `command.options` at profile-load time — so a per-flavor
+profile collapses to just `app:` + `default_options:` and inherits every
+iOS / Android / general action from the base profile unchanged, now each
+carrying `flavor` + `target`.
+
+Precedence (lowest → highest, last wins on key collision):
+
+1. `default_options` — profile-wide defaults.
+2. per-action `command.options` — the action's own keys in the profile.
+3. `--option key=value` — per-invocation override on `fastlane_cli run`.
+
+So a per-action option overrides a `default_options` key of the same name, and
+a CLI `--option` overrides both. `default_options` only affects `fastlane`-type
+actions (other command types take no options); it is optional — absent means
+no-op, and every existing profile behaves identically.
+
 ### `.env` auto-forwarding
 
 When a lane runs, `fastlane_cli` automatically reads and forwards env values
@@ -192,6 +227,10 @@ rules (canonical implementation:
 - `supported_locales`, `shortcuts` — app fully replaces base when set.
 - `categories`, `actions` — merged by `id`. App entries with the same `id`
   replace the base entry; new `id`s append.
+- `default_options` — deep merge; app keys win per key. After the base⊕app
+  merge resolves the final action list, `default_options` is folded
+  underneath each `fastlane`-action's `command.options` (per-action keys
+  win). See [`default_options`](#default_options--same-options-on-every-lane).
 
 The bundled runner lives at `<install-prefix>/share/fastlane_cli/fastlane/`
 once installed via brew. During development, point `app.fastlane_runner_path`
