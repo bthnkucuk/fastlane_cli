@@ -79,7 +79,6 @@ lane :get_version_data do |options|
   a_version, a_build = android_line.split("|", 2)
   i_version, i_build = ios_line.split("|", 2)
 
-  semver_regex = /^\d+\.\d+\.\d+$/
   pubspec_version = "0.0.0"
   pubspec_build = 0
   begin
@@ -95,18 +94,34 @@ lane :get_version_data do |options|
     UI.important("⚠️ Could not read pubspec for fallback version: #{e.message}")
   end
 
-  semver_key = ->(name) { name.to_s.split(".").map(&:to_i) }
+  bump = (options[:bump] || "patch")
+  begin
+    bump = FastlaneCliConfig.normalize_bump_level(bump)
+  rescue ArgumentError => e
+    UI.user_error!(e.message)
+  end
 
-  candidate_versions = [a_version, i_version, pubspec_version]
-                         .map { |v| v.to_s.strip }
-                         .select { |v| v =~ semver_regex }
-                         .uniq
+  # Component-wise-max resolution across all three sources. A source that is
+  # `unknown|0` (store unreachable / app not yet published) folds in as
+  # 0.0.0+0 — it never blocks the max. See `resolve_bumped_version` /
+  # `parse_version_components` in common_helpers.rb.
+  resolved =
+    begin
+      FastlaneCliConfig.resolve_bumped_version(
+        sources: [
+          { version: a_version, build: a_build },
+          { version: i_version, build: i_build },
+          { version: pubspec_version, build: pubspec_build }
+        ],
+        bump: bump
+      )
+    rescue ArgumentError => e
+      UI.user_error!("Version parse failed: #{e.message}")
+    end
 
-  selected_version = candidate_versions.sort_by(&semver_key).last
-  selected_version = pubspec_version if selected_version.to_s.strip.empty?
-  selected_version = "0.0.0" if selected_version.to_s.strip.empty?
-
-  selected_build = [a_build.to_i, i_build.to_i, pubspec_build].max
+  maxes = resolved[:maxes]
+  selected_version = resolved[:version_name]
+  selected_build = resolved[:build_number]
   final_output = "#{selected_version}|#{selected_build}"
 
   app_name = "(unknown)"
@@ -122,16 +137,6 @@ lane :get_version_data do |options|
   flavor_label = options[:flavor].to_s.strip
   flavor_label = "(none)" if flavor_label.empty?
 
-  selected_source = if a_version.to_s == selected_version && a_build.to_i == selected_build
-                      "Android (Play Store)"
-                    elsif i_version.to_s == selected_version && i_build.to_i == selected_build
-                      "iOS (App Store Connect)"
-                    elsif pubspec_version.to_s == selected_version && pubspec_build == selected_build
-                      "pubspec.yaml"
-                    else
-                      "max(android, ios, pubspec)"
-                    end
-
   FastlaneCliConfig.print_summary_box(
     "Version data",
     [
@@ -146,9 +151,15 @@ lane :get_version_data do |options|
       "Pubspec (yerel)                version=#{pubspec_version}  build=#{pubspec_build}",
       "  ↳ Kaynak: #{pubspec_path || '(bulunamadı)'}",
       :sep,
-      "Seçilen      : #{selected_version}+#{selected_build}",
-      "Belirleyici  : #{selected_source}",
-      "Kural        : versionName = max semver, buildNumber = max(android, ios, pubspec)"
+      "Komponent-bazlı max  : major=#{maxes[:major]}  minor=#{maxes[:minor]}  " \
+        "patch=#{maxes[:patch]}  build=#{maxes[:build]}",
+      "Bump seviyesi        : #{bump}",
+      "Seçilen              : #{selected_version}+#{selected_build}",
+      :sep,
+      "Kural: her komponent (major/minor/patch/build) 3 kaynağın bağımsız maksimumu.",
+      "  versionName = bump=#{bump} uygulanmış komponent-max " \
+        "(patch→+1 patch · minor→+1 minor,patch=0 · major→+1 major,minor=patch=0)",
+      "  buildNumber = max(android, ios, pubspec) + 1  (bump seviyesinden bağımsız)"
     ]
   )
 
@@ -159,8 +170,16 @@ end
 
 desc "Bump app version and trigger platform lanes"
 lane :internal_test do |options|
-  bump = (options[:bump] || "patch").to_s.downcase
-  bump = "patch" unless %w[major minor patch].include?(bump)
+  # Bump level (patch / minor / major). Invalid → clear error. The actual
+  # component-wise-max computation lives in `get_version_data` →
+  # `FastlaneCliConfig.resolve_bumped_version`; we only validate here so a
+  # bad value fails fast before any build work.
+  bump =
+    begin
+      FastlaneCliConfig.normalize_bump_level(options[:bump] || "patch")
+    rescue ArgumentError => e
+      UI.user_error!(e.message)
+    end
 
   platform = (options[:platform] || "both").to_s.downcase
   run_ios = platform.include?("ios") || platform == "both"
@@ -174,23 +193,12 @@ lane :internal_test do |options|
   else
     full_version = options[:full_version].to_s.strip
     if full_version.empty?
-      base_version, base_build = get_version_data(options).to_s.strip.split("|", 2)
-      major, minor, patch = (base_version.to_s.split(".").map(&:to_i) + [0, 0, 0])[0, 3]
-      build_number = base_build.to_i + 1
-
-      case bump
-      when "major"
-        major += 1
-        minor = 0
-        patch = 0
-      when "minor"
-        minor += 1
-        patch = 0
-      else
-        patch += 1
-      end
-
-      full_version = "#{major}.#{minor}.#{patch}+#{build_number}"
+      # `get_version_data` already resolves the component-wise-max bump for
+      # the requested `bump` level and returns the final "version|build".
+      # Do NOT re-apply a bump on top of it.
+      resolved_version, resolved_build =
+        get_version_data(options.merge(bump: bump.to_s)).to_s.strip.split("|", 2)
+      full_version = "#{resolved_version}+#{resolved_build}"
     end
 
     update_pubspec_version(options.merge(full_version: full_version))
