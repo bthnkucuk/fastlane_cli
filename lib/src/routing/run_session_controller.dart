@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:nocterm/nocterm.dart' show ChangeNotifier;
@@ -8,8 +9,22 @@ import '../model/cli_action.dart';
 import '../model/command_request.dart';
 import '../model/run_session.dart';
 import '../services/command_execution_service.dart';
+import '../services/run_progress_parser.dart';
 import '../services/run_prompt_parser.dart';
+import '../util/ring_buffer.dart';
 import 'environment.dart';
+
+/// Maximum number of log entries retained per run session. Older entries are
+/// dropped FIFO once the buffer is full. Same cap as the pre-v0.4.4 sliding
+/// window, but now backed by a [RingBuffer] for O(1) append (was O(n) per
+/// line via `List.sublist`).
+const int kRunSessionLogCap = 300;
+
+/// Maximum interval between an inbound log line and the resulting
+/// `notifyListeners` call. 16 ms ≈ 60 Hz, the practical refresh ceiling
+/// of a terminal; bursting 100+ lines/sec (xcodebuild, pod install) now
+/// collapses to at most ~60 emits/sec instead of 100+.
+const Duration kLogBatchInterval = Duration(milliseconds: 16);
 
 /// Per-tab run session state. Replaces the cubit's
 /// `runSessionsByActionId` map. Each [RunRoute] owns one of these and disposes
@@ -20,11 +35,34 @@ class RunSessionController extends ChangeNotifier {
   final String actionId;
   final FastlaneCliEnvironment environment;
 
+  /// Live ring buffer of every log entry observed since the most recent
+  /// reset. The session's `logs` field is a snapshot of this buffer taken
+  /// once per emit (so views observe a stable List during their build).
+  final RingBuffer<RunLogEntry> _logRing =
+      RingBuffer<RunLogEntry>(kRunSessionLogCap);
+
   RunSession _session = const RunSession(status: RunStatus.idle);
   RunSession get session => _session;
 
   bool _isRunning = false;
   bool get isRunning => _isRunning;
+
+  /// Pending log lines queued for the next batched emit. Drained by
+  /// [_flushPendingLogs] on the trailing edge of the timer window.
+  final Queue<RunLogEntry> _pendingLogs = Queue<RunLogEntry>();
+
+  /// Carries forward the latest progress/prompt deltas observed while a
+  /// batch was being assembled, so the eventual emit reflects them.
+  RunProgressUpdate? _pendingProgress;
+  RunPrompt? _pendingNewPrompt;
+
+  /// Timer in flight for the next batched flush. Null when no batch is
+  /// pending (the next [_appendLog] call schedules one).
+  Timer? _batchTimer;
+
+  /// Test-only hook: every `_flushPendingLogs` invocation increments this.
+  /// Lets unit tests assert that 1000 rapid appends collapse to ~16 emits.
+  int debugFlushCount = 0;
 
   /// The live child handle, set while a process is running. The prompt modal
   /// uses this to push the user's response back to the child's stdin.
@@ -37,7 +75,27 @@ class RunSessionController extends ChangeNotifier {
     _running = process;
   }
 
+  /// Flush any pending log batch synchronously. Useful in tests that need
+  /// deterministic emit ordering without awaiting timer ticks.
+  void debugFlushPendingLogs() {
+    _flushPendingLogs();
+  }
+
   void _emit(RunSession next) {
+    _session = next;
+    notifyListeners();
+  }
+
+  /// Reset both the session AND the ring buffer. Used at the start of every
+  /// run() so a retry sees a clean slate without carrying the previous run's
+  /// trailing lines.
+  void _resetState(RunSession next) {
+    _logRing.clear();
+    _pendingLogs.clear();
+    _pendingProgress = null;
+    _pendingNewPrompt = null;
+    _batchTimer?.cancel();
+    _batchTimer = null;
     _session = next;
     notifyListeners();
   }
@@ -47,11 +105,11 @@ class RunSessionController extends ChangeNotifier {
 
     final action = environment.profile.actionsById[actionId];
     if (action == null) {
-      _emit(
+      _resetState(
         RunSession(
           status: RunStatus.failed,
           actionId: actionId,
-          logs: const [
+          logs: <RunLogEntry>[
             RunLogEntry(message: 'Action not found.', isError: true),
           ],
         ),
@@ -60,11 +118,11 @@ class RunSessionController extends ChangeNotifier {
     }
 
     if (action.requiresConfirmation && !confirmed) {
-      _emit(
+      _resetState(
         RunSession(
           status: RunStatus.confirmationRequired,
           actionId: action.id,
-          logs: [
+          logs: <RunLogEntry>[
             RunLogEntry(
               message: 'Confirmation required for ${action.id}.',
               isError: false,
@@ -79,12 +137,12 @@ class RunSessionController extends ChangeNotifier {
     if (action.requiresOverwriteConfirmation &&
         overwriteTargets.isNotEmpty &&
         !confirmed) {
-      _emit(
+      _resetState(
         RunSession(
           status: RunStatus.confirmationRequired,
           actionId: action.id,
-          logs: [
-            const RunLogEntry(
+          logs: <RunLogEntry>[
+            RunLogEntry(
               message:
                   'Overwrite confirmation required: existing destination content detected.',
               isError: false,
@@ -99,12 +157,12 @@ class RunSessionController extends ChangeNotifier {
     }
 
     _isRunning = true;
-    _emit(
+    _resetState(
       RunSession(
         status: RunStatus.validating,
         actionId: action.id,
         progressIndeterminate: true,
-        logs: const [],
+        logs: const <RunLogEntry>[],
       ),
     );
 
@@ -113,6 +171,16 @@ class RunSessionController extends ChangeNotifier {
       action: action,
     );
     if (!preflight.success) {
+      final entries = <RunLogEntry>[
+        RunLogEntry(
+          message: 'Action blocked by preflight validation.',
+          isError: true,
+        ),
+        ...preflight.errors.map(
+          (item) => RunLogEntry(message: item, isError: true),
+        ),
+      ];
+      _logRing.addAll(entries);
       _emit(
         RunSession(
           status: RunStatus.blocked,
@@ -120,15 +188,7 @@ class RunSessionController extends ChangeNotifier {
           guideTopic: preflight.guideTopic,
           validationErrors: preflight.errors,
           validationChecklist: preflight.checklist,
-          logs: [
-            const RunLogEntry(
-              message: 'Action blocked by preflight validation.',
-              isError: true,
-            ),
-            ...preflight.errors.map(
-              (item) => RunLogEntry(message: item, isError: true),
-            ),
-          ],
+          logs: _logRing.toListSnapshot(),
         ),
       );
       _isRunning = false;
@@ -142,6 +202,9 @@ class RunSessionController extends ChangeNotifier {
         action: action,
       );
     } catch (error) {
+      _logRing.add(
+        RunLogEntry(message: 'Command build failed: $error', isError: true),
+      );
       _emit(
         RunSession(
           status: RunStatus.failed,
@@ -149,15 +212,16 @@ class RunSessionController extends ChangeNotifier {
           progressIndeterminate: false,
           progressValue: 1,
           validationChecklist: preflight.checklist,
-          logs: [
-            RunLogEntry(message: 'Command build failed: $error', isError: true),
-          ],
+          logs: _logRing.toListSnapshot(),
         ),
       );
       _isRunning = false;
       return _session;
     }
 
+    _logRing.add(
+      RunLogEntry(message: request.displayCommand, isError: false),
+    );
     _emit(
       RunSession(
         status: RunStatus.running,
@@ -165,7 +229,7 @@ class RunSessionController extends ChangeNotifier {
         command: request.displayCommand,
         progressIndeterminate: true,
         validationChecklist: preflight.checklist,
-        logs: [RunLogEntry(message: request.displayCommand, isError: false)],
+        logs: _logRing.toListSnapshot(),
       ),
     );
 
@@ -180,19 +244,23 @@ class RunSessionController extends ChangeNotifier {
         },
       );
     } catch (error) {
+      // Drain any in-flight batch BEFORE the failure marker so log order is
+      // preserved (otherwise the error could appear ahead of trailing
+      // streamed output captured just before the throw).
+      _flushPendingLogs();
+      _logRing.add(
+        RunLogEntry(
+          message: 'Command execution failed: $error',
+          isError: true,
+        ),
+      );
       _emit(
         _session.copyWith(
           status: RunStatus.failed,
           exitCode: -1,
           progressIndeterminate: false,
           progressValue: 1,
-          logs: _bounded([
-            ..._session.logs,
-            RunLogEntry(
-              message: 'Command execution failed: $error',
-              isError: true,
-            ),
-          ]),
+          logs: _logRing.toListSnapshot(),
         ),
       );
       _isRunning = false;
@@ -206,19 +274,20 @@ class RunSessionController extends ChangeNotifier {
         ? RunStatus.succeeded
         : RunStatus.failed;
 
+    _flushPendingLogs();
+    _logRing.add(
+      RunLogEntry(
+        message: 'Exit code: ${result.exitCode}',
+        isError: result.exitCode != 0,
+      ),
+    );
     _emit(
       _session.copyWith(
         status: finalStatus,
         exitCode: result.exitCode,
         progressIndeterminate: false,
         progressValue: 1,
-        logs: _bounded([
-          ..._session.logs,
-          RunLogEntry(
-            message: 'Exit code: ${result.exitCode}',
-            isError: result.exitCode != 0,
-          ),
-        ]),
+        logs: _logRing.toListSnapshot(),
       ),
     );
     _isRunning = false;
@@ -226,21 +295,65 @@ class RunSessionController extends ChangeNotifier {
     return _session;
   }
 
+  /// Streaming log entry handler. Enqueues into the pending buffer and
+  /// schedules a flush on the next 16 ms boundary. The flush coalesces every
+  /// line that arrived in the window into ONE `notifyListeners()` call.
+  ///
+  /// This is the hot path: a verbose `xcodebuild` lane fires 100+ lines per
+  /// second. Before v0.4.4 each one rebuilt the entire session + copied the
+  /// log list (O(n)); now they all share a single ring-buffer push + a
+  /// debounced emit.
   void _appendLog(String line, {required bool isError}) {
-    final progressUpdate = environment.progressParser.parse(line);
+    final entry = RunLogEntry(message: line, isError: isError);
+    _pendingLogs.add(entry);
 
-    // Only look for a prompt when one isn't already pending. Fastlane often
-    // echoes the same prompt twice (once on first print, once on retry), and
-    // overwriting `activePrompt` mid-modal would reset the user's typing.
-    final RunPrompt? newPrompt =
-        _session.activePrompt == null ? environment.promptParser.parse(line) : null;
+    // Parse progress / prompt eagerly so the next flush has the most recent
+    // signal. Prompt parsing is gated the same way as before: only look for
+    // a prompt while none is already pending (Fastlane echoes prompts on
+    // retry and overwriting `activePrompt` mid-modal would clobber typing).
+    final progressUpdate = environment.progressParser.parse(line);
+    if (progressUpdate != null) {
+      _pendingProgress = progressUpdate;
+    }
+    if (_session.activePrompt == null && _pendingNewPrompt == null) {
+      final newPrompt = environment.promptParser.parse(line);
+      if (newPrompt != null) {
+        _pendingNewPrompt = newPrompt;
+      }
+    }
+
+    _scheduleFlush();
+  }
+
+  void _scheduleFlush() {
+    if (_batchTimer != null) return;
+    _batchTimer = Timer(kLogBatchInterval, _flushPendingLogs);
+  }
+
+  void _flushPendingLogs() {
+    _batchTimer?.cancel();
+    _batchTimer = null;
+    debugFlushCount++;
+    if (_pendingLogs.isEmpty &&
+        _pendingProgress == null &&
+        _pendingNewPrompt == null) {
+      return;
+    }
+
+    // Drain pending lines into the ring buffer. The ring takes care of
+    // dropping oldest entries when at capacity.
+    while (_pendingLogs.isNotEmpty) {
+      _logRing.add(_pendingLogs.removeFirst());
+    }
+
+    final progressUpdate = _pendingProgress;
+    final newPrompt = _pendingNewPrompt;
+    _pendingProgress = null;
+    _pendingNewPrompt = null;
 
     _emit(
       _session.copyWith(
-        logs: _bounded([
-          ..._session.logs,
-          RunLogEntry(message: line, isError: isError),
-        ]),
+        logs: _logRing.toListSnapshot(),
         activeFile: progressUpdate?.activeFile,
         progressIndeterminate:
             progressUpdate?.indeterminate ?? _session.progressIndeterminate,
@@ -267,19 +380,19 @@ class RunSessionController extends ChangeNotifier {
       return error;
     }
     final wrote = await _running?.writeStdin(value) ?? false;
+    _logRing.add(
+      RunLogEntry(
+        message: wrote
+            ? '[prompt] response sent'
+            : '[prompt] response NOT sent (no live process)',
+        isError: !wrote,
+      ),
+    );
     _emit(
       _session.copyWith(
         activePrompt: null,
         respondedAt: DateTime.now(),
-        logs: _bounded([
-          ..._session.logs,
-          RunLogEntry(
-            message: wrote
-                ? '[prompt] response sent'
-                : '[prompt] response NOT sent (no live process)',
-            isError: !wrote,
-          ),
-        ]),
+        logs: _logRing.toListSnapshot(),
       ),
     );
     return null;
@@ -295,6 +408,14 @@ class RunSessionController extends ChangeNotifier {
       _running?.signal(ProcessSignal.sigint);
     }
     _emit(_session.copyWith(activePrompt: null));
+  }
+
+  @override
+  void dispose() {
+    _batchTimer?.cancel();
+    _batchTimer = null;
+    _pendingLogs.clear();
+    super.dispose();
   }
 
   List<String> _overwriteTargets(CliAction action) {
@@ -316,11 +437,5 @@ class RunSessionController extends ChangeNotifier {
       resolved.add(normalized);
     }
     return resolved;
-  }
-
-  static List<RunLogEntry> _bounded(List<RunLogEntry> logs) {
-    const max = 300;
-    if (logs.length <= max) return logs;
-    return logs.sublist(logs.length - max);
   }
 }
