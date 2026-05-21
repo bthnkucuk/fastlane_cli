@@ -117,6 +117,41 @@ RSpec.describe "Fastfile sub-lane delegation" do
       }
     end
 
+    it "wires `flutter_build_flags` into every `flutter build` artifact site in #{relative}" do
+      # Regression guard for the v0.12.0 bug: the top-level `internal_test`
+      # lane built `flutter build ipa` directly but never appended
+      # `FastlaneCliConfig.flutter_build_flags`, so `obfuscate:true` (and
+      # `--split-per-abi`) were silently dropped from the uploaded artifact.
+      #
+      # Rule: any non-comment line that starts a `build_parts` array with a
+      # `flutter ... build <apk|appbundle|ipa>` command MUST be followed,
+      # within a small window, by a `flutter_build_flags` concat before the
+      # `build_parts` array is consumed.
+      content = File.read(path)
+      lines = content.lines
+      build_starts = lines.each_with_index.select do |line, _idx|
+        stripped = line.lstrip
+        next false if stripped.start_with?("#")
+
+        line =~ /build_parts\s*=\s*\[.*\bbuild\s+(?:apk|appbundle|ipa)\b/
+      end
+
+      offenders = build_starts.reject do |_line, idx|
+        # Look ahead up to 8 lines for the flutter_build_flags concat.
+        window = lines[idx, 9].to_a.join
+        window.include?("flutter_build_flags")
+      end
+
+      expect(offenders).to be_empty, lambda {
+        formatted = offenders.map { |line, idx| "  #{path}:#{idx + 1}: #{line.strip}" }.join("\n")
+        "Found `flutter build` artifact site(s) that never append " \
+          "`FastlaneCliConfig.flutter_build_flags(options, artifact: ...)`. " \
+          "Every build that produces an uploaded/distributed artifact must " \
+          "carry the obfuscation / split-per-abi flags — see the v0.12.0 " \
+          "internal_test iOS regression.\n#{formatted}"
+      }
+    end
+
     it "does not shell-out to platform lanes via `sh(... fastlane ios|android ...)` in #{relative}" do
       content = File.read(path)
       # Matches `sh(` (any whitespace) followed by a string literal that

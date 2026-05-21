@@ -239,6 +239,7 @@ lane :internal_test do |options|
       build_parts = ["#{flutter_cmd} build ipa --release"]
       build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
       build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+      build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :ipa))
       # `flutter build ipa` shells out to `pod install`; without a clean
       # env it fails with "CocoaPods is installed but broken". See
       # common_helpers.rb `with_clean_subprocess_env`.
