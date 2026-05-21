@@ -148,6 +148,18 @@ caller's profile or env, not here.
 - Android: `GOOGLE_PLAY_JSON_KEY_PATH` (path to service account JSON).
 - Bundle / package id: `IOS_APP_IDENTIFIER` / `ANDROID_PACKAGE_NAME` /
   `FASTLANE_APP_IDENTIFIER` OR via profile/option args.
+- iOS Crashlytics symbols (optional, only consumed when an action sets
+  `upload_symbols: "true"` on the `test_flight` lane — see
+  `fastlane/ios/Fastfile` `upload_dsyms` lane for the standalone handler):
+  `IOS_UPLOAD_SYMBOLS_SCRIPT` (path to Firebase's `upload-symbols` binary),
+  `IOS_GOOGLE_SERVICE_INFO_PLIST`, optional `IOS_DSYM_PATH` (default:
+  `./build/ios/archive/Runner.xcarchive/dSYMs`). Missing script / GSP causes
+  a soft skip with a `"atlandı (script/gsp eksik)"` summary marker — never
+  hard-fails the upload. **Android Crashlytics mapping / NDK symbol upload
+  is not wired** — no Android lane invokes
+  `uploadCrashlyticsMappingFile<Variant>` /
+  `uploadCrashlyticsSymbolFile<Variant>`. Add via consumer profile + a new
+  lane if needed.
 
 Never log secrets. The summary box helper auto-redacts known sensitive keys.
 Redacted patterns (case-insensitive, value after `:` or `=` becomes `***`):
