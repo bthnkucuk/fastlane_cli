@@ -48,7 +48,10 @@ void main() {
 
   group('RunSession', () {
     test('copyWith replaces fields', () {
-      const initial = RunSession(
+      // RunSession is still const-constructible; only RunLogEntry lost its
+      // const ctor (it now memoises a parsed ANSI span — see v0.4.4 W9 fix).
+      // Compose by reaching for a non-const log list.
+      final initial = RunSession(
         status: RunStatus.running,
         actionId: 'a',
         logs: <RunLogEntry>[RunLogEntry(message: 'm', isError: false)],

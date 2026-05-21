@@ -324,9 +324,12 @@ class _RunViewState extends State<_RunView> {
         ),
       );
     }
+    // entry.parsedAnsi memoises the parse, so the regex/SGR machinery only
+    // runs once per (entry, baseStyle) pair. ListView.builder calls this
+    // itemBuilder on every notifyListeners → without the cache we'd reparse
+    // the whole visible window on each frame (v0.4.4 W9 fix).
     return RichText(
-      text: ansiLineToSpan(
-        entry.message,
+      text: entry.parsedAnsi(
         baseStyle: TextStyle(color: theme.onBackground),
       ),
       softWrap: true,

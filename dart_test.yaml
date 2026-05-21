@@ -1,0 +1,11 @@
+# Declared tags so `fvm dart test --tags perf` doesn't warn.
+#
+# The perf benchmark runs as part of the default suite (it's cheap: ~30 ms
+# on a 2024 M3). The `perf` tag exists for `--exclude-tags perf` when you
+# explicitly want to skip timing-sensitive assertions on a slow CI runner.
+tags:
+  perf:
+    description: >-
+      Wall-clock benchmark for the v0.4.4 batch-log perf fix (W9). Cheap
+      enough to run by default; tag exists so flaky CI can opt out via
+      `--exclude-tags perf`.

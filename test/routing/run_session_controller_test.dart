@@ -59,7 +59,10 @@ void main() {
 
         final runFuture = controller.run(confirmed: true);
         // Let the executor emit the prompt log line.
-        await Future<void>.delayed(const Duration(milliseconds: 5));
+        // Give the controller's 16 ms batch timer time to fire so the
+        // prompt is surfaced on the session. Bumped from 5 ms when the
+        // v0.4.4 perf fix introduced log batching.
+        await Future<void>.delayed(const Duration(milliseconds: 40));
         expect(controller.session.activePrompt, isNotNull);
         expect(
           controller.session.activePrompt!.kind,
@@ -98,7 +101,8 @@ void main() {
           RunSessionController(actionId: 'noop', environment: env);
 
       final runFuture = controller.run(confirmed: true);
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      // Wait past the controller's 16 ms batch window (v0.4.4 perf fix).
+      await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(controller.session.activePrompt, isNotNull);
 
       controller.dismissPrompt();
@@ -122,7 +126,8 @@ void main() {
           RunSessionController(actionId: 'noop', environment: env);
 
       final runFuture = controller.run(confirmed: true);
-      await Future<void>.delayed(const Duration(milliseconds: 5));
+      // Wait past the controller's 16 ms batch window (v0.4.4 perf fix).
+      await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(controller.session.activePrompt, isNotNull);
 
       controller.dismissPrompt(sigint: false);
@@ -149,7 +154,7 @@ void main() {
             RunSessionController(actionId: 'noop', environment: env);
 
         final runFuture = controller.run(confirmed: true);
-        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await Future<void>.delayed(const Duration(milliseconds: 40));
         final firstPrompt = controller.session.activePrompt;
         expect(firstPrompt, isNotNull);
         // The fake fires the prompt line twice — the second should be a
@@ -161,6 +166,108 @@ void main() {
       },
     );
   });
+
+  group('RunSessionController log batching + ring buffer', () {
+    test(
+      '1000 rapid log lines collapse into a small number of notifyListeners',
+      () async {
+        final temp = _ensureTempRunner();
+        addTearDown(() => temp.delete(recursive: true));
+        final fakeProcess = _FakeRunningProcess();
+        final executor = _BurstExecutor(
+          fakeProcess: fakeProcess,
+          burstSize: 1000,
+        );
+        final env = _buildEnvironment(executor, appRootPath: temp.path);
+        final controller =
+            RunSessionController(actionId: 'noop', environment: env);
+
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        final runFuture = controller.run(confirmed: true);
+        executor.complete();
+        await runFuture;
+        // Force a final flush in case the run finished before the last 16 ms
+        // timer would have fired naturally.
+        controller.debugFlushPendingLogs();
+
+        // 1000 inbound lines: with the 16 ms batch window, even the
+        // worst-case (sub-millisecond burst) collapses to a small number of
+        // emits. The hard cap is generous (40) to keep the test stable under
+        // jittery test schedulers. Pre-v0.4.4 this would have been 1000+.
+        expect(
+          notifyCount,
+          lessThan(40),
+          reason: 'expected batched notifyListeners, got $notifyCount',
+        );
+        // The ring buffer cap is honoured.
+        expect(controller.session.logs.length, lessThanOrEqualTo(300));
+        // Last line is the exit-code summary appended at run() completion;
+        // the line immediately before it should be the final burst entry.
+        expect(controller.session.logs.last.message, contains('Exit code: 0'));
+        expect(
+          controller.session.logs[controller.session.logs.length - 2].message,
+          contains('line 999'),
+        );
+      },
+    );
+
+    test('ring buffer cap drops oldest log entries beyond 300', () async {
+      final temp = _ensureTempRunner();
+      addTearDown(() => temp.delete(recursive: true));
+      final fakeProcess = _FakeRunningProcess();
+      final executor = _BurstExecutor(
+        fakeProcess: fakeProcess,
+        burstSize: 500,
+      );
+      final env = _buildEnvironment(executor, appRootPath: temp.path);
+      final controller =
+          RunSessionController(actionId: 'noop', environment: env);
+      final runFuture = controller.run(confirmed: true);
+      executor.complete();
+      await runFuture;
+      controller.debugFlushPendingLogs();
+
+      // 500 input lines + 1 displayCommand line + 1 exit-code line. The cap
+      // is 300 + we drop the oldest, so the visible log starts well after
+      // 'line 0'.
+      expect(controller.session.logs.length, 300);
+      final firstMessage = controller.session.logs.first.message;
+      expect(firstMessage, isNot(contains('line 0')));
+      expect(controller.session.logs.last.message, contains('Exit code: 0'));
+    });
+  });
+}
+
+/// Test executor that emits [burstSize] log lines synchronously, then parks
+/// until `complete()` is called. Models the worst-case "100+ lines/sec
+/// xcodebuild" stream that triggered the W9 perf bottleneck.
+class _BurstExecutor implements CommandExecutionService {
+  _BurstExecutor({required this.fakeProcess, required this.burstSize});
+
+  final _FakeRunningProcess fakeProcess;
+  final int burstSize;
+  final Completer<void> _completion = Completer<void>();
+
+  void complete() {
+    if (!_completion.isCompleted) _completion.complete();
+  }
+
+  @override
+  Future<CommandExecutionResult> run(
+    CommandRequest request, {
+    required bool dryRun,
+    required void Function(CommandLogEvent event) onLog,
+    void Function(RunningProcess process)? onProcess,
+  }) async {
+    onProcess?.call(fakeProcess);
+    for (var i = 0; i < burstSize; i++) {
+      onLog(CommandLogEvent(message: 'line $i', isError: false));
+    }
+    await _completion.future;
+    return const CommandExecutionResult(exitCode: 0, wasDryRun: false);
+  }
 }
 
 /// A test-only executor that emits a prompt log line, attaches a fake

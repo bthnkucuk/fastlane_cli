@@ -1,6 +1,6 @@
 name: fastlane_cli
 description: Terminal-first Fastlane assistant for categorized lane execution and store guides.
-version: 0.4.3
+version: 0.4.4
 publish_to: none
 
 environment:
