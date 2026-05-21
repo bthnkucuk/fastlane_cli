@@ -348,3 +348,89 @@ subcommand + skills sections need A2 + C1 final.
 - [ ] Notarize macOS binaries (`xcrun notarytool`).
 - [ ] Cross-platform tests on GH Actions matrix (today: only macOS local).
 - [ ] Submit to `homebrew-core` once 75+ stars + 30 days.
+
+---
+
+## §8. Production-hardening roadmap *(from the v0.13.0 tri-agent evaluation)*
+
+Three independent agents evaluated fastlane_cli as a fastlane wrapper —
+architecture, UX, and robustness/distribution. Findings below, deduplicated
+and prioritized. The recurring theme across all three: **the headless
+`fastlane_cli run` path — the product's reason to exist — skips every safety
+mechanism the TUI has.**
+
+### P0 — Safety & correctness *(blocks trustworthy unattended / CI use)*
+
+- [ ] **P0.1 Headless safety gate.** Before executing, `run` must: honor
+  `requires_confirmation` / `requires_overwrite_confirmation` (gate destructive
+  lanes behind a `--yes` flag / TTY y-n prompt); run `PreflightValidator`; run
+  `doctor` credential + toolchain checks for the action's platform. All three
+  are TUI-only today — `run android_production` fires a real production Play
+  upload with no prompt. *(all 3 evals · `run_command.dart:161`,
+  `profile.base.yaml:177,337`)*
+- [ ] **P0.2 Version-bump must not guess.** An unreachable store silently
+  degrades to `unknown|0`, the bump still "succeeds", and a wrong build number
+  ships with exit 0. Hard-fail by default; `--allow-unknown-sources` to opt in
+  to degradation. *(arch eval · `common_helpers.rb` get_version_data)*
+- [ ] **P0.3 `production` lane: bump after success.** `update_pubspec_version`
+  runs before `flutter build` with no rollback — a mid-lane failure leaves
+  `pubspec.yaml` with an orphaned version bump → Play-track drift. Bump after a
+  successful upload, or `rescue` + restore. *(robustness eval ·
+  `android/Fastfile:259-263`)*
+- [ ] **P0.4 Real `--dry-run`.** Today `--dry-run` only short-circuits the Dart
+  executor; the lane's `flutter build` / `upload_to_*` are never gated. Make
+  dry-run propagate into fastlane so it is a true "what would run" plan.
+  *(arch eval · `run_command.dart:113`)*
+
+### P1 — Correctness & trust
+
+- [ ] **P1.1 Remove hardcoded `fvm`.** `command_builder.dart:102,114` spawn
+  `executable: 'fvm'` unconditionally — violates CLAUDE.md §5.2. Add a profile
+  `flutter_command:` field, default plain `flutter`, mirror the Ruby
+  `FASTLANE_FLUTTER_CMD` fallback. *(arch + robustness evals)*
+- [ ] **P1.2 Profile + lane-name validation.** Add `fastlane_cli validate`;
+  cross-check each `command.lane` against the bundled Fastfile at load time.
+  *(arch + UX evals)*
+- [ ] **P1.3 `--lang` honored in subcommands** — currently silently swallowed.
+  *(UX eval · `fastlane_cli_runner.dart:35`)*
+- [ ] **P1.4 `doctor` truth-telling.** Load the `.env` chain before judging
+  credentials (today only `Platform.environment` → false WARNs); fix the
+  bundle-bootstrap remediation text. *(UX eval · `doctor_service.dart:253`)*
+- [ ] **P1.5 Fix `init`.** Scaffold to `<app>/fastlane/profile.yaml` with
+  `root_path: ..`; detect the surrounding Flutter app. Today it writes into cwd
+  → walk-up discovery can't find it. *(UX eval · `init_command.dart:54`)*
+- [ ] **P1.6 Option discoverability.** Enrich `list --json` (`shortcut`,
+  `requires_confirmation`, `command.options`); add `describe <action-id>`.
+  Fixes the `fastlane-cli-run` skill, which documents a `list --json` shape
+  that does not exist. *(UX eval · `list_command.dart:72-83`)*
+
+### P2 — Distribution & hygiene
+
+- [ ] **P2.1 gitignore build artifacts** — `dist/*.tar.gz`, `dist/fastlane_cli`.
+  Untracked binaries sit in the tree today; one `git add` leaks a binary to
+  public history. *(robustness eval)*
+- [ ] **P2.2 Reconcile the in-repo draft formula** (`PLACEHOLDER` shas, stale
+  `v0.1.0` URLs) vs the live tap formula — wire CI formula-bump (Track D2,
+  never built) or delete the draft and document the manual flow honestly.
+- [ ] **P2.3 Intel-mac / Linux honesty.** The formula promises `on_intel`
+  while the Intel CI leg is `continue-on-error` → possible `brew install` 404.
+  Make Intel required or drop it; state Linux = Android lanes only.
+- [ ] **P2.4 Align Flutter SDK** between `ci.yml` and `release.yml`.
+- [ ] **P2.5 Single version source** — `version.dart` / `pubspec.yaml` /
+  formula are three hand-edited copies; generate, or CI-check divergence.
+
+### P3 — Improvements *(opportunistic, post-hardening)*
+
+- [ ] **P3.1** Resolve or delete the dead `bundle` / `storepilot_bridge`
+  subsystem (documented in CLAUDE.md §4, reachable from no profile).
+- [ ] **P3.2** Structural env-pollution fix — run `flutter`/`gradle` as direct
+  Dart child processes instead of `sh("cd … && …")` under a scrubbed env;
+  removes the fragile hardcoded `/Cellar/fastlane/` substring matching.
+- [ ] **P3.3** `run --json` structured result; `run --timeout`; `run --quiet`.
+- [ ] **P3.4** Fuzzy "did you mean" on an unknown action id.
+- [ ] **P3.5** `_normalizePath` (`cli_profile.dart:86`) → `p.normalize`.
+- [ ] **P3.6** macOS notarization / signing — promote from §7 to pre-1.0.
+
+**Sequencing:** P0 is the gate to calling fastlane_cli trustworthy for
+unattended use — ship P0.1–P0.4 first, one focused agent each. P1 next; P2
+folds into the release-pipeline work; P3 is opportunistic.
