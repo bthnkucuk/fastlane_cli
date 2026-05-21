@@ -31,3 +31,8 @@ fastlane/test_output/
 
 # FVM Version Cache
 .fvm/
+
+# Pre-push leak guard — the real forbidden-substring blocklist is local-only
+# (contains brand/personal names that must never reach this public repo).
+# Each contributor copies it from .githooks/blocklist.example.
+.githooks/blocklist
