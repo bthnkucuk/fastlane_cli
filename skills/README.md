@@ -23,6 +23,7 @@ itself — single source of truth, no duplication.
 | [`fastlane-cli-version-bump`](fastlane-cli-version-bump/SKILL.md)      | Bump fastlane_cli's *own* `pubspec.yaml` + formula version per conventional-commits rules when shipping a PR. |
 | [`fastlane-metadata-sync`](fastlane-metadata-sync/SKILL.md)            | Pull / push App Store and Play store listing text + screenshots + App Privacy.                          |
 | [`fastlane-testflight`](fastlane-testflight/SKILL.md)                  | iOS TestFlight release flow — credentials, version handling, canonical action ids.                      |
+| [`fastlane-appstore-promote`](fastlane-appstore-promote/SKILL.md)      | Promote an already-uploaded TestFlight build to App Store review — interactive picker, no re-upload.     |
 | [`fastlane-play-internal`](fastlane-play-internal/SKILL.md)            | Android Play Console internal-track release flow — service account, version handling, action ids.       |
 | [`fastlane-doctor`](fastlane-doctor/SKILL.md)                          | Diagnose env / credential / toolchain issues before invoking a lane.                                    |
 | [`fastlane-crashlytics-symbols`](fastlane-crashlytics-symbols/SKILL.md) | Upload iOS dSYMs to Firebase Crashlytics (opt-in TestFlight flag + standalone lane); document Android gap.|

@@ -10,6 +10,10 @@ internal / external tester group). For App Store production submissions use
 the action ids prefixed `ios_app_store` / `ios_deploy_appstore` — they live
 under the same category but are flagged `requires_confirmation: true`.
 
+To submit a build **already on TestFlight** to App Store review without
+re-uploading a binary, use `ios_promote_to_app_store` — see
+[`fastlane-appstore-promote`](../fastlane-appstore-promote/SKILL.md).
+
 ## Prerequisites
 
 ### 1. App Store Connect credentials

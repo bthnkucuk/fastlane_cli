@@ -1,5 +1,6 @@
 require "shellwords"
 require_relative "../common_helpers"
+require_relative "../promote_helpers"
 
 platform :ios do
   private_lane :ios_app_identifier do |options|
@@ -732,6 +733,208 @@ platform :ios do
       [
         "App identifier : #{app_identifier}",
         "Hedef klasör   : #{screenshots_path}"
+      ]
+    )
+  end
+
+  # Resolves the recent TestFlight builds for an app as an array of normalized
+  # build Hashes (see PromoteHelpers.normalize_build). Uses Spaceship's
+  # ConnectAPI directly — there is no fastlane action that lists builds with
+  # the fields the picker needs. Newest build first.
+  #
+  # `limit` caps how many builds are fetched (default 20). Returns [] when the
+  # app or its builds can't be resolved; the lane decides how to react.
+  private_lane :fetch_testflight_builds do |options|
+    require "spaceship"
+
+    app_identifier = options[:app_identifier].to_s.strip
+    UI.user_error!("app_identifier is required") if app_identifier.empty?
+    limit = (options[:limit] || 20).to_i
+    limit = 20 if limit <= 0
+
+    app = Spaceship::ConnectAPI::App.find(app_identifier)
+    UI.user_error!("App not found on App Store Connect: #{app_identifier}") if app.nil?
+
+    builds = Spaceship::ConnectAPI::Build.all(
+      app_id: app.id,
+      sort: "-uploadedDate",
+      includes: "preReleaseVersion,appStoreVersion",
+      limit: limit
+    )
+
+    Array(builds).map do |build|
+      pre_release = begin
+        build.pre_release_version
+      rescue StandardError
+        nil
+      end
+      attached = begin
+        !build.app_store_version.nil?
+      rescue StandardError
+        false
+      end
+
+      PromoteHelpers.normalize_build(
+        build_number: build.version,
+        version: pre_release&.version,
+        uploaded_date: build.uploaded_date,
+        processing_state: build.processing_state,
+        attached: attached
+      )
+    end
+  end
+
+  desc "Promote an existing TestFlight build to App Store review (no re-upload)"
+  lane :promote_to_app_store do |options|
+    # 1. Auth — App Store submission MUST be API-key driven. We do NOT fall
+    #    back to interactive Apple ID here: a half-interactive submission is
+    #    worse than a clear failure.
+    auth_options = resolve_app_store_connect_api_key(options)
+    if auth_options.empty?
+      UI.user_error!(
+        "promote_to_app_store requires an App Store Connect API key.\n" \
+        "   Set one of:\n" \
+        "     • APP_STORE_CONNECT_API_KEY_JSON_PATH (path to JSON with key_id/issuer_id/key)\n" \
+        "     • APP_STORE_CONNECT_API_KEY_ID + _ISSUER_ID + _FILEPATH (path to AuthKey.p8)\n" \
+        "   Interactive Apple ID login is intentionally not supported for App Store submission."
+      )
+    end
+
+    app_identifier = ios_app_identifier(options)
+
+    submit_metadata = FastlaneCliConfig.bool_option(options, :submit_metadata, default: false)
+    submit_screenshots = FastlaneCliConfig.bool_option(options, :submit_screenshots, default: false)
+    automatic_release = FastlaneCliConfig.bool_option(options, :automatic_release, default: false)
+
+    # 2/3. Resolve the build number — either via the non-interactive
+    #      `build_number:` override, or by listing + prompting.
+    override_build = FastlaneCliConfig.option_or_env(options, :build_number, [])
+    selected_build = nil
+    selected_version = nil
+    selected_state = nil
+
+    if !FastlaneCliConfig.blank?(override_build)
+      selected_build = override_build.to_s.strip
+      UI.message("➡️  build_number override supplied — skipping interactive picker: #{selected_build}")
+      # Best-effort enrichment so the summary box can show the version/state.
+      begin
+        builds = fetch_testflight_builds(app_identifier: app_identifier)
+        match = PromoteHelpers.find_build_by_number(builds, selected_build)
+        if match
+          selected_version = match[:version]
+          selected_state = match[:processing_state]
+          unless match[:valid]
+            UI.important(
+              "⚠️ Build #{selected_build} is in state #{match[:processing_state]} " \
+              "(not VALID). deliver may reject the submission."
+            )
+          end
+        else
+          UI.important("⚠️ Build #{selected_build} not found in the recent TestFlight build list; submitting anyway.")
+        end
+      rescue => e
+        UI.important("⚠️ Could not enrich build #{selected_build} from App Store Connect: #{e.message}")
+      end
+    else
+      builds = fetch_testflight_builds(app_identifier: app_identifier)
+      UI.user_error!("No TestFlight builds found for #{app_identifier}.") if builds.empty?
+
+      UI.message("📦 Recent TestFlight builds for #{app_identifier}:")
+      builds.each_with_index do |build, idx|
+        UI.message(PromoteHelpers.format_build_line(idx + 1, build))
+      end
+
+      # Print the selection prompt in EXACTLY the shape the fastlane_cli
+      # `chooseIndex` parser expects (`Please choose:?\s*(\d+)\s*-\s*(\d+)`).
+      # In the TUI this pops a selection modal; in a plain terminal the user
+      # types the number. PromoteHelpers.choose_prompt locks the format.
+      prompt = PromoteHelpers.choose_prompt(builds.size)
+      UI.message(prompt)
+
+      raw_choice = STDIN.gets
+      UI.user_error!("No selection received (stdin closed).") if raw_choice.nil?
+
+      begin
+        selected_build = PromoteHelpers.build_number_for_index(builds, raw_choice.strip)
+      rescue ArgumentError => e
+        UI.user_error!("Invalid selection: #{e.message}")
+      end
+
+      chosen = PromoteHelpers.find_build_by_number(builds, selected_build)
+      if chosen
+        selected_version = chosen[:version]
+        selected_state = chosen[:processing_state]
+        unless chosen[:valid]
+          UI.important(
+            "⚠️ Selected build #{selected_build} is #{chosen[:processing_state]} (not VALID). " \
+            "deliver may reject the submission."
+          )
+        end
+      end
+    end
+
+    UI.user_error!("Could not resolve a build number to promote.") if FastlaneCliConfig.blank?(selected_build)
+
+    # IDFA / export-compliance answers — required by deliver inside
+    # `submit_for_review` (same as the `app_store` lane).
+    submission_info_path, submission_info = FastlaneCliConfig.read_submission_information(options)
+
+    # 4. Submit for App Store review — binary already on TestFlight, so
+    #    skip_binary_upload. Metadata + screenshots skipped by default; this
+    #    lane promotes a build, it does not re-push the store listing.
+    upload_to_app_store(
+      {
+        app_identifier: app_identifier,
+        build_number: selected_build.to_s,
+        skip_binary_upload: true,
+        skip_metadata: !submit_metadata,
+        skip_screenshots: !submit_screenshots,
+        submit_for_review: true,
+        automatic_release: automatic_release,
+        force: true,
+        precheck_include_in_app_purchases: false,
+        submission_information: submission_info
+      }.merge(auth_options)
+    )
+
+    # Best-effort: read back the resulting App Store version state.
+    version_state = "(bilinmiyor)"
+    begin
+      require "spaceship"
+      app = Spaceship::ConnectAPI::App.find(app_identifier)
+      if app
+        latest = app.get_app_store_versions(
+          filter: { platform: Spaceship::ConnectAPI::Platform::IOS },
+          includes: nil,
+          limit: 1,
+          sort: "-createdDate"
+        ).first
+        if latest
+          version_state = [
+            latest.version_string,
+            FastlaneCliConfig.blank?(latest.app_store_state) ? nil : latest.app_store_state
+          ].compact.join(" / ")
+        end
+      end
+    rescue => e
+      UI.important("⚠️ Could not read back App Store version state: #{e.message}")
+    end
+
+    FastlaneCliConfig.print_summary_box(
+      "iOS · TestFlight build App Store'a gönderildi",
+      [
+        "App identifier      : #{app_identifier}",
+        "Seçilen build       : #{selected_build}#{selected_version ? " (#{selected_version})" : ''}",
+        "Build durumu        : #{selected_state || '(bilinmiyor)'}",
+        "Seçim modu          : #{FastlaneCliConfig.blank?(override_build) ? 'interaktif (Please choose)' : 'build_number override'}",
+        "Binary upload       : atlandı (zaten TestFlight'ta)",
+        "Submit for review   : true",
+        "Automatic release   : #{automatic_release}",
+        "Metadata            : #{submit_metadata ? 'gönderildi' : 'atlandı'}",
+        "Screenshots         : #{submit_screenshots ? 'gönderildi' : 'atlandı'}",
+        "Submission info     : #{submission_info_path.nil? ? '(yok)' : submission_info_path}",
+        "Auth strategy       : #{auth_options.keys.join(', ')}",
+        "App Store sürümü    : #{version_state}"
       ]
     )
   end
