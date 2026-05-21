@@ -117,6 +117,31 @@ module FastlaneCliConfig
     from_env.to_s.strip
   end
 
+  # Build the Firebase Crashlytics NDK native-symbol upload Gradle task name:
+  # `uploadCrashlyticsSymbolFile<Flavor><BuildType>`.
+  #
+  # Gradle variant casing only capitalises the FIRST letter of each segment
+  # (`narravo` → `Narravo`, `release` → `Release`) — it does NOT title-case
+  # multi-word names, so a flavor like `freeStaging` stays `FreeStaging`.
+  # When no flavor resolves the task collapses to
+  # `uploadCrashlyticsSymbolFile<BuildType>`.
+  #
+  # Pure function — no ENV / filesystem access — so it is unit-testable.
+  def crashlytics_symbol_task(flavor:, build_type: "release")
+    flavor_part = blank?(flavor) ? "" : capitalize_variant_segment(flavor)
+    type_part = capitalize_variant_segment(blank?(build_type) ? "release" : build_type)
+    "uploadCrashlyticsSymbolFile#{flavor_part}#{type_part}"
+  end
+
+  # Capitalise only the first character of a Gradle variant segment, leaving
+  # the rest untouched (mirrors Gradle's own variant-name capitalisation).
+  def capitalize_variant_segment(value)
+    str = value.to_s.strip
+    return "" if str.empty?
+
+    str[0].upcase + str[1..].to_s
+  end
+
   def resolve_identifier(options = {}, platform:)
     explicit = option(options, :app_identifier, :bundle_identifier, :package_name)
     return explicit.to_s.strip unless blank?(explicit)

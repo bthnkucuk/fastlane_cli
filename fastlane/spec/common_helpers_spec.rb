@@ -166,6 +166,68 @@ RSpec.describe FastlaneCliConfig do
     end
   end
 
+  describe ".crashlytics_symbol_task" do
+    it "capitalises the first letter of a single-word flavor" do
+      expect(
+        described_class.crashlytics_symbol_task(flavor: "narravo")
+      ).to eq("uploadCrashlyticsSymbolFileNarravoRelease")
+    end
+
+    it "drops the flavor segment when no flavor is given" do
+      expect(
+        described_class.crashlytics_symbol_task(flavor: nil)
+      ).to eq("uploadCrashlyticsSymbolFileRelease")
+    end
+
+    it "treats a blank flavor string as no flavor" do
+      expect(
+        described_class.crashlytics_symbol_task(flavor: "   ")
+      ).to eq("uploadCrashlyticsSymbolFileRelease")
+    end
+
+    it "capitalises only the first letter of a multi-word flavor (Gradle casing)" do
+      expect(
+        described_class.crashlytics_symbol_task(flavor: "freeStaging")
+      ).to eq("uploadCrashlyticsSymbolFileFreeStagingRelease")
+    end
+
+    it "trims surrounding whitespace from the flavor" do
+      expect(
+        described_class.crashlytics_symbol_task(flavor: "  narravo  ")
+      ).to eq("uploadCrashlyticsSymbolFileNarravoRelease")
+    end
+
+    it "honours an explicit build_type override" do
+      expect(
+        described_class.crashlytics_symbol_task(flavor: "narravo", build_type: "debug")
+      ).to eq("uploadCrashlyticsSymbolFileNarravoDebug")
+    end
+
+    it "falls back to Release when build_type is blank" do
+      expect(
+        described_class.crashlytics_symbol_task(flavor: "narravo", build_type: "")
+      ).to eq("uploadCrashlyticsSymbolFileNarravoRelease")
+    end
+  end
+
+  describe ".capitalize_variant_segment" do
+    it "capitalises only the first character" do
+      expect(described_class.capitalize_variant_segment("freeStaging")).to eq("FreeStaging")
+    end
+
+    it "returns an empty string for nil" do
+      expect(described_class.capitalize_variant_segment(nil)).to eq("")
+    end
+
+    it "returns an empty string for a blank value" do
+      expect(described_class.capitalize_variant_segment("   ")).to eq("")
+    end
+
+    it "handles a single-character value" do
+      expect(described_class.capitalize_variant_segment("a")).to eq("A")
+    end
+  end
+
   describe ".resolve_fastlane_root" do
     # macOS resolves /tmp -> /private/tmp; compare via realpath of the parent
     # so the test doesn't bind to platform symlink quirks.

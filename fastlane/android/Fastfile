@@ -87,6 +87,44 @@ platform :android do
     }
   end
 
+  # Upload native (NDK) symbol files to Firebase Crashlytics so native
+  # crashes (Rust/C/C++ plugins) are symbolicated. Returns a summary-box
+  # marker string describing what happened — NEVER raises.
+  #
+  # Mirrors the iOS `test_flight` `upload_symbols` philosophy: this is a
+  # soft, opt-in, never-hard-fail step. If `upload_symbols` is false the
+  # marker is "atlandı". If the gradle task is absent (the consumer app has
+  # not applied the Crashlytics plugin / `nativeSymbolUploadEnabled` is off /
+  # the app has no native code) the gradle invocation errors — we catch it
+  # and return a soft-skip marker so the AAB build+upload still succeeds.
+  #
+  # R8/Kotlin mapping files need nothing here: the Firebase Crashlytics
+  # Gradle plugin uploads those automatically during the release build.
+  private_lane :upload_crashlytics_ndk_symbols do |options|
+    unless FastlaneCliConfig.bool_option(options, :upload_symbols, default: false)
+      next "atlandı"
+    end
+
+    flavor = FastlaneCliConfig.resolve_flavor(options)
+    task = FastlaneCliConfig.crashlytics_symbol_task(flavor: flavor, build_type: "release")
+    gradle_cmd = "./android/gradlew -p android :app:#{task} --stacktrace"
+
+    begin
+      FastlaneCliConfig.with_clean_subprocess_env do
+        sh(FastlaneCliConfig.in_app_root(gradle_cmd, options))
+      end
+      UI.success("✅ Crashlytics NDK symbols uploaded via #{task}")
+      "yüklendi (#{task})"
+    rescue => e
+      UI.important(
+        "⚠️ Crashlytics NDK symbol upload skipped: #{task} failed " \
+        "(#{e.message.to_s.lines.first.to_s.strip}). " \
+        "App likely has no native code or nativeSymbolUploadEnabled is off."
+      )
+      "atlandı (uploadCrashlyticsSymbolFile task yok / nativeSymbolUploadEnabled kapalı)"
+    end
+  end
+
   desc "Build and distribute Android app to Firebase App Distribution"
   lane :firebase_distribute do |options|
     flutter_cmd = FastlaneCliConfig.flutter_command(options)
@@ -165,6 +203,8 @@ platform :android do
       skip_upload_changelogs: true
     )
 
+    symbols_status = upload_crashlytics_ndk_symbols(options)
+
     FastlaneCliConfig.print_summary_box(
       "Android · Internal Testing yüklendi",
       [
@@ -172,7 +212,8 @@ platform :android do
         "Flavor         : #{flavor || '(none)'}",
         "Track          : #{track}",
         "Release status : #{release_status}",
-        "AAB            : #{aab_path}"
+        "AAB            : #{aab_path}",
+        "NDK symbols    : #{symbols_status}"
       ]
     )
   end
@@ -210,6 +251,8 @@ platform :android do
       skip_upload_changelogs: true
     )
 
+    symbols_status = upload_crashlytics_ndk_symbols(options)
+
     FastlaneCliConfig.print_summary_box(
       "Android · Production yüklendi",
       [
@@ -218,7 +261,8 @@ platform :android do
         "Track          : #{track}",
         "Release status : #{release_status}",
         "Auto version   : #{auto_version}",
-        "AAB            : #{aab_path}"
+        "AAB            : #{aab_path}",
+        "NDK symbols    : #{symbols_status}"
       ]
     )
   end
