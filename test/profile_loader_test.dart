@@ -392,6 +392,149 @@ void main() {
       expect(action.command.options['target'], 'lib/main_staging.dart');
     });
 
+    test(
+      'app.package_name / app.bundle_id are parsed and folded into every '
+      'fastlane action as package_name / app_identifier options',
+      () async {
+        final temp = await Directory.systemTemp.createTemp(
+          'fastlane_cli_profile_app_identity',
+        );
+        addTearDown(() => temp.delete(recursive: true));
+
+        final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
+        final profileFile = File('${temp.path}/profile.yaml')
+          ..writeAsStringSync(_appIdentityYaml);
+
+        final loader = ProfileLoader(
+          runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+        );
+        final profile = await loader.load(profileFile.path);
+
+        // Model surfaces the parsed identity.
+        expect(profile.packageName, 'com.example.myapp');
+        expect(profile.bundleId, 'com.example.myapp.ios');
+
+        // app.package_name → package_name option key.
+        // app.bundle_id    → app_identifier option key.
+        final action = profile.actionsById['ship']!;
+        expect(action.command.options['package_name'], 'com.example.myapp');
+        expect(
+          action.command.options['app_identifier'],
+          'com.example.myapp.ios',
+        );
+      },
+    );
+
+    test('profile with neither app identity key still loads (both null)',
+        () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'fastlane_cli_profile_no_app_identity',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
+      final profileFile = File('${fastlaneDir.path}/profile.yaml')
+        ..writeAsStringSync(_validProfileYaml);
+
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
+      final profile = await loader.load(profileFile.path);
+
+      expect(profile.packageName, isNull);
+      expect(profile.bundleId, isNull);
+      // No identity option leaks into actions.
+      expect(
+        profile.actionsById['android_update_metadata']!.command.options,
+        isEmpty,
+      );
+    });
+
+    test(
+      'default_options outranks the app: block identity on key collision',
+      () async {
+        final temp = await Directory.systemTemp.createTemp(
+          'fastlane_cli_profile_identity_vs_defaults',
+        );
+        addTearDown(() => temp.delete(recursive: true));
+
+        final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
+        final profileFile = File('${temp.path}/profile.yaml')
+          ..writeAsStringSync(_appIdentityVsDefaultOptionsYaml);
+
+        final loader = ProfileLoader(
+          runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+        );
+        final profile = await loader.load(profileFile.path);
+
+        final action = profile.actionsById['ship']!;
+        // default_options wins; the app: block value is shadowed.
+        expect(
+          action.command.options['package_name'],
+          'com.example.defaultopts',
+        );
+        // bundle_id has no default_options override → app: block value used.
+        expect(
+          action.command.options['app_identifier'],
+          'com.example.myapp.ios',
+        );
+      },
+    );
+
+    test(
+      'per-action command.options outranks both default_options and the '
+      'app: block identity',
+      () async {
+        final temp = await Directory.systemTemp.createTemp(
+          'fastlane_cli_profile_identity_vs_action',
+        );
+        addTearDown(() => temp.delete(recursive: true));
+
+        final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
+        final profileFile = File('${temp.path}/profile.yaml')
+          ..writeAsStringSync(_appIdentityVsActionOptionsYaml);
+
+        final loader = ProfileLoader(
+          runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+        );
+        final profile = await loader.load(profileFile.path);
+
+        final action = profile.actionsById['ship']!;
+        // Per-action option beats the app: block identity.
+        expect(
+          action.command.options['package_name'],
+          'com.example.actionopts',
+        );
+      },
+    );
+
+    test('app: block identity merges in from profile.base.yaml', () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'fastlane_cli_profile_identity_base_merge',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+
+      final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
+      File('${fastlaneDir.path}/profile.base.yaml').writeAsStringSync(
+        _baseWithAppIdentityYaml,
+      );
+      File('${temp.path}/profile.yaml').writeAsStringSync(
+        _overlayNoAppIdentityYaml,
+      );
+
+      final loader = ProfileLoader(
+        runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+      );
+      final profile = await loader.load('${temp.path}/profile.yaml');
+
+      // app: deep-merges — base identity survives when the overlay omits it.
+      expect(profile.packageName, 'com.example.base');
+      expect(
+        profile.actionsById['shared_action']!.command.options['package_name'],
+        'com.example.base',
+      );
+    });
+
     test('throws when category mapping is invalid', () async {
       final temp = await Directory.systemTemp.createTemp(
         'fastlane_cli_profile_invalid',
@@ -729,6 +872,118 @@ app:
 default_options:
   flavor: staging
   target: lib/main_staging.dart
+''';
+
+const String _appIdentityYaml = '''
+app:
+  name: App
+  root_path: .
+  package_name: com.example.myapp
+  bundle_id: com.example.myapp.ios
+categories:
+  - id: c
+    title:
+      tr: C
+      en: C
+    actions:
+      - ship
+actions:
+  - id: ship
+    category: c
+    title:
+      tr: T
+      en: T
+    command:
+      type: fastlane
+      platform: android
+      lane: noop
+''';
+
+const String _appIdentityVsDefaultOptionsYaml = '''
+app:
+  name: App
+  root_path: .
+  package_name: com.example.myapp
+  bundle_id: com.example.myapp.ios
+default_options:
+  package_name: com.example.defaultopts
+categories:
+  - id: c
+    title:
+      tr: C
+      en: C
+    actions:
+      - ship
+actions:
+  - id: ship
+    category: c
+    title:
+      tr: T
+      en: T
+    command:
+      type: fastlane
+      platform: android
+      lane: noop
+''';
+
+const String _appIdentityVsActionOptionsYaml = '''
+app:
+  name: App
+  root_path: .
+  package_name: com.example.myapp
+  bundle_id: com.example.myapp.ios
+default_options:
+  package_name: com.example.defaultopts
+categories:
+  - id: c
+    title:
+      tr: C
+      en: C
+    actions:
+      - ship
+actions:
+  - id: ship
+    category: c
+    title:
+      tr: T
+      en: T
+    command:
+      type: fastlane
+      platform: android
+      lane: noop
+      options:
+        package_name: com.example.actionopts
+''';
+
+const String _baseWithAppIdentityYaml = '''
+app:
+  name: BaseApp
+  root_path: .
+  package_name: com.example.base
+  bundle_id: com.example.base.ios
+categories:
+  - id: android
+    title:
+      tr: Base Cat
+      en: Base Cat
+    actions:
+      - shared_action
+actions:
+  - id: shared_action
+    category: android
+    title:
+      tr: Base Title
+      en: Base Title
+    command:
+      type: fastlane
+      platform: android
+      lane: noop
+''';
+
+const String _overlayNoAppIdentityYaml = '''
+app:
+  name: OverlayApp
+  root_path: .
 ''';
 
 const String _overlayMergeYaml = '''
