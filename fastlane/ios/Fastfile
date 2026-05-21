@@ -252,6 +252,8 @@ platform :ios do
       end
     end
 
+    flutter_symbols_status = FastlaneCliConfig.upload_flutter_symbols(options, platform: :ios)
+
     FastlaneCliConfig.print_summary_box(
       "iOS · TestFlight yüklendi",
       [
@@ -259,7 +261,8 @@ platform :ios do
         "IPA            : #{ipa_path}",
         "Auth strategy  : #{auth_options.keys.join(', ')}",
         "Skip wait      : #{FastlaneCliConfig.bool_option(options, :skip_waiting_for_build_processing, default: true)}",
-        "Symbols        : #{symbols_status}"
+        "Symbols        : #{symbols_status}",
+        "Dart symbols   : #{flutter_symbols_status}"
       ]
     )
   end

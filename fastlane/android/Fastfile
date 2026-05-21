@@ -206,6 +206,7 @@ platform :android do
     )
 
     symbols_status = upload_crashlytics_ndk_symbols(options)
+    flutter_symbols_status = FastlaneCliConfig.upload_flutter_symbols(options, platform: :android)
 
     FastlaneCliConfig.print_summary_box(
       "Android · Internal Testing yüklendi",
@@ -215,7 +216,8 @@ platform :android do
         "Track          : #{track}",
         "Release status : #{release_status}",
         "AAB            : #{aab_path}",
-        "NDK symbols    : #{symbols_status}"
+        "NDK symbols    : #{symbols_status}",
+        "Dart symbols   : #{flutter_symbols_status}"
       ]
     )
   end
@@ -255,6 +257,7 @@ platform :android do
     )
 
     symbols_status = upload_crashlytics_ndk_symbols(options)
+    flutter_symbols_status = FastlaneCliConfig.upload_flutter_symbols(options, platform: :android)
 
     FastlaneCliConfig.print_summary_box(
       "Android · Production yüklendi",
@@ -265,7 +268,8 @@ platform :android do
         "Release status : #{release_status}",
         "Auto version   : #{auto_version}",
         "AAB            : #{aab_path}",
-        "NDK symbols    : #{symbols_status}"
+        "NDK symbols    : #{symbols_status}",
+        "Dart symbols   : #{flutter_symbols_status}"
       ]
     )
   end
