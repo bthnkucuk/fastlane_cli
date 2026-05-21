@@ -1,5 +1,0 @@
-{
-  "permissions": {
-    "allow": ["Bash(cat /Users/obenkucuk/dev/ire/apps/tuSpeech/fastlane/.env)"]
-  }
-}
