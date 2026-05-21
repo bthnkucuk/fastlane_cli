@@ -839,6 +839,187 @@ module FastlaneCliConfig
     raise
   end
 
+  # ---------------------------------------------------------------------------
+  # Firebase Crashlytics symbol-upload discovery
+  # ---------------------------------------------------------------------------
+  # The TestFlight `upload_symbols` step and the standalone `upload_dsyms` lane
+  # need two artefacts at runtime:
+  #
+  #   1. Firebase's `upload-symbols` binary.
+  #   2. The app's `GoogleService-Info.plist`.
+  #
+  # Historically both were hand-pinned via env vars (`IOS_UPLOAD_SYMBOLS_SCRIPT`
+  # / `IOS_GOOGLE_SERVICE_INFO_PLIST`). That is fragile: a SwiftPM Firebase app
+  # keeps `upload-symbols` inside DerivedData under a per-build hash that
+  # changes on every clean, so any pinned path rots. These helpers auto-discover
+  # both artefacts so a standard-layout app needs ZERO Crashlytics env vars,
+  # while still honouring the env vars / options as explicit overrides.
+  #
+  # Both helpers are filesystem-only (no network) and take injectable base
+  # paths (`derived_data_root`, `cache_root`) so the specs stay hermetic and
+  # never touch a real `~/Library`.
+
+  # CocoaPods install location of the Firebase Crashlytics upload-symbols
+  # binary, relative to the iOS project dir.
+  CRASHLYTICS_PODS_UPLOAD_SYMBOLS_RELATIVE =
+    "ios/Pods/FirebaseCrashlytics/upload-symbols"
+
+  # A repo may vendor a previously-extracted copy here.
+  CRASHLYTICS_VENDORED_UPLOAD_SYMBOLS_RELATIVE = "ios/scripts/upload-symbols"
+
+  # Glob, relative to a DerivedData root, that locates the SwiftPM-checked-out
+  # firebase-ios-sdk's upload-symbols binary. The leading `*` is the per-app
+  # DerivedData folder (`Runner-<hash>`).
+  CRASHLYTICS_SWIFTPM_UPLOAD_SYMBOLS_GLOB =
+    "*/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/upload-symbols"
+
+  # Default DerivedData root for Xcode on macOS.
+  def default_derived_data_root
+    File.expand_path("~/Library/Developer/Xcode/DerivedData")
+  end
+
+  # Per-user cache directory for fastlane_cli. The SwiftPM upload-symbols
+  # binary is copied here so the volatile DerivedData hash never reaches the
+  # actual `sh` invocation and survives a later DerivedData wipe.
+  def fastlane_cli_cache_root
+    File.expand_path("~/Library/Caches/fastlane_cli")
+  end
+
+  # Resolve Firebase's `upload-symbols` binary. Returns an absolute path to an
+  # existing file, or nil (caller soft-skips).
+  #
+  # Precedence (first existing hit wins):
+  #   1. Explicit override — options[:upload_symbols_script] /
+  #      ENV["IOS_UPLOAD_SYMBOLS_SCRIPT"] (resolved via resolve_app_path).
+  #   2. CocoaPods Firebase — <app_root>/ios/Pods/FirebaseCrashlytics/upload-symbols.
+  #   3. SwiftPM Firebase — newest match (by mtime) of the DerivedData glob.
+  #      When found here, the binary is copied into the per-user cache and the
+  #      CACHED path is returned (stable across DerivedData wipes).
+  #   4. A vendored copy — <app_root>/ios/scripts/upload-symbols.
+  #   5. nil.
+  #
+  # `derived_data_root` and `cache_root` are injectable for hermetic specs.
+  def resolve_upload_symbols_script(options = {}, derived_data_root: nil, cache_root: nil)
+    resolve_upload_symbols_script_with_source(
+      options, derived_data_root: derived_data_root, cache_root: cache_root
+    )[:path]
+  end
+
+  # Same resolution as `resolve_upload_symbols_script` but returns a hash:
+  #   { path: String|nil, source: String }
+  # The `source` label is human-readable and surfaced in the summary box so
+  # the user can see WHERE the binary was found. When nothing resolves,
+  # `path` is nil and `source` is "bulunamadı".
+  def resolve_upload_symbols_script_with_source(options = {}, derived_data_root: nil, cache_root: nil)
+    # 1. Explicit override.
+    explicit = option_or_env(options, :upload_symbols_script, %w[IOS_UPLOAD_SYMBOLS_SCRIPT])
+    unless blank?(explicit)
+      resolved = resolve_app_path(explicit, options)
+      return { path: resolved, source: "explicit override" } if resolved && File.exist?(resolved)
+    end
+
+    app_root = resolve_app_root(options)
+
+    # 2. CocoaPods Firebase.
+    pods_path = File.expand_path(CRASHLYTICS_PODS_UPLOAD_SYMBOLS_RELATIVE, app_root)
+    return { path: pods_path, source: "CocoaPods" } if File.exist?(pods_path)
+
+    # 3. SwiftPM Firebase (volatile DerivedData) → cache.
+    swiftpm_path = discover_swiftpm_upload_symbols(derived_data_root || default_derived_data_root)
+    unless swiftpm_path.nil?
+      cached = cache_upload_symbols_binary(swiftpm_path, cache_root || fastlane_cli_cache_root)
+      source = cached == swiftpm_path ? "SwiftPM DerivedData" : "SwiftPM DerivedData → cache"
+      return { path: cached, source: source }
+    end
+
+    # 4. Vendored copy.
+    vendored_path = File.expand_path(CRASHLYTICS_VENDORED_UPLOAD_SYMBOLS_RELATIVE, app_root)
+    return { path: vendored_path, source: "vendored (ios/scripts)" } if File.exist?(vendored_path)
+
+    # 5. Nothing.
+    { path: nil, source: "bulunamadı" }
+  end
+
+  # Glob the DerivedData root for the SwiftPM firebase-ios-sdk upload-symbols
+  # binary and return the most-recently-modified match (newest build wins), or
+  # nil. Tolerates a missing DerivedData root, zero matches, and permission
+  # errors — never raises.
+  def discover_swiftpm_upload_symbols(derived_data_root)
+    return nil if blank?(derived_data_root)
+    return nil unless Dir.exist?(derived_data_root)
+
+    pattern = File.join(derived_data_root, CRASHLYTICS_SWIFTPM_UPLOAD_SYMBOLS_GLOB)
+    matches = Dir.glob(pattern).select { |path| File.file?(path) }
+    return nil if matches.empty?
+
+    matches.max_by { |path| File.mtime(path) }
+  rescue SystemCallError
+    # Errno::EACCES / Errno::ENOENT and friends — fall through to next tier.
+    nil
+  end
+
+  # Copy a discovered (volatile) upload-symbols binary into the per-user cache
+  # and return the cached path. Re-copies only when the cached copy is missing
+  # or older than the discovered one. If the copy fails for any reason, falls
+  # back to returning the discovered path directly (never hard-fails).
+  def cache_upload_symbols_binary(discovered_path, cache_root)
+    return discovered_path if blank?(discovered_path) || blank?(cache_root)
+
+    cached_path = File.join(cache_root, "upload-symbols")
+
+    stale = !File.exist?(cached_path) ||
+            File.mtime(cached_path) < File.mtime(discovered_path)
+
+    if stale
+      FileUtils.mkdir_p(cache_root)
+      FileUtils.cp(discovered_path, cached_path)
+      FileUtils.chmod(0o755, cached_path)
+    end
+
+    cached_path
+  rescue SystemCallError, IOError
+    # Cache write failed (permissions, full disk, ...) — the discovered path
+    # still works for this run; just don't get the stability benefit.
+    discovered_path
+  end
+
+  # Resolve the app's `GoogleService-Info.plist`. Returns an absolute path to
+  # an existing file, or nil (caller soft-skips).
+  #
+  # Precedence (first existing hit wins):
+  #   1. Explicit override — options[:google_service_info_plist] /
+  #      ENV["IOS_GOOGLE_SERVICE_INFO_PLIST"] (via resolve_app_path).
+  #   2. Flavor convention — when a flavor resolves,
+  #      <app_root>/ios/flavors/<flavor>/GoogleService-Info.plist.
+  #   3. Default single-flavor — <app_root>/ios/Runner/GoogleService-Info.plist.
+  #   4. nil.
+  def resolve_google_service_info_plist(options = {})
+    # 1. Explicit override.
+    explicit = option_or_env(options, :google_service_info_plist, %w[IOS_GOOGLE_SERVICE_INFO_PLIST])
+    unless blank?(explicit)
+      resolved = resolve_app_path(explicit, options)
+      return resolved if resolved && File.exist?(resolved)
+    end
+
+    app_root = resolve_app_root(options)
+
+    # 2. Flavor convention.
+    flavor = resolve_flavor(options)
+    unless blank?(flavor)
+      flavor_path = File.expand_path(
+        "ios/flavors/#{flavor}/GoogleService-Info.plist", app_root
+      )
+      return flavor_path if File.exist?(flavor_path)
+    end
+
+    # 3. Default single-flavor layout.
+    default_path = File.expand_path("ios/Runner/GoogleService-Info.plist", app_root)
+    return default_path if File.exist?(default_path)
+
+    # 4. Nothing.
+    nil
+  end
+
   def fastlane_option_tokens(options = {}, allowed_keys: nil)
     return [] unless options.respond_to?(:to_h)
 

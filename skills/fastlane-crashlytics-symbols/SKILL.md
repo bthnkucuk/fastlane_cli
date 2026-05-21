@@ -20,32 +20,56 @@ so production crashes get symbolicated.
 A profile that already carries `upload_symbols: "true"` in `default_options`
 enables Crashlytics symbol upload on BOTH platforms with no further change.
 
-## Prerequisites (iOS)
+## Prerequisites (iOS) — zero-config since v0.8.0
 
-Two env vars (script + plist) are mandatory; the third (dSYM path) defaults to
-the Flutter xcarchive output.
+The `upload-symbols` binary and the `GoogleService-Info.plist` are
+**auto-discovered at runtime**. A standard SwiftPM-Firebase app needs **no
+Crashlytics env vars at all**.
+
+`upload-symbols` discovery precedence (first existing hit wins):
+
+1. **Explicit override** — `IOS_UPLOAD_SYMBOLS_SCRIPT` env var (or the
+   `upload_symbols_script` option).
+2. **CocoaPods** — `ios/Pods/FirebaseCrashlytics/upload-symbols`.
+3. **SwiftPM DerivedData** — globs
+   `~/Library/Developer/Xcode/DerivedData/*/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/upload-symbols`,
+   picks the most-recently-modified match (newest build), then **copies it to
+   a stable per-user cache** at `~/Library/Caches/fastlane_cli/upload-symbols`
+   and uses the cached path. The volatile DerivedData hash never reaches the
+   actual `sh` call, so a later DerivedData wipe doesn't break a re-run.
+4. **Vendored** — `ios/scripts/upload-symbols` (some repos vendor a copy).
+5. Nothing → soft-skip.
+
+`GoogleService-Info.plist` discovery precedence:
+
+1. **Explicit override** — `IOS_GOOGLE_SERVICE_INFO_PLIST` env var (or the
+   `google_service_info_plist` option).
+2. **Flavor convention** — `ios/flavors/<flavor>/GoogleService-Info.plist`
+   when a flavor resolves.
+3. **Default** — `ios/Runner/GoogleService-Info.plist`.
+4. Nothing → soft-skip.
 
 ```sh
-# Firebase's upload-symbols binary — ships with the FirebaseCrashlytics pod
-# (CocoaPods) or inside the xcframework (SPM). Find it with:
-#   find ios -name upload-symbols
-export IOS_UPLOAD_SYMBOLS_SCRIPT="ios/Pods/FirebaseCrashlytics/upload-symbols"
-
-export IOS_GOOGLE_SERVICE_INFO_PLIST="ios/Runner/GoogleService-Info.plist"
+# Optional overrides — only needed for non-standard layouts. A standard
+# SwiftPM-Firebase + ios/flavors/<flavor>/GoogleService-Info.plist app
+# needs NONE of these.
+# export IOS_UPLOAD_SYMBOLS_SCRIPT="ios/Pods/FirebaseCrashlytics/upload-symbols"
+# export IOS_GOOGLE_SERVICE_INFO_PLIST="ios/Runner/GoogleService-Info.plist"
 
 # Optional — default is ./build/ios/archive/Runner.xcarchive/dSYMs
 # export IOS_DSYM_PATH="..."
 ```
 
-Paths can be relative to the app root — `FastlaneCliConfig.resolve_app_path`
+Override paths can be relative to the app root — `FastlaneCliConfig.resolve_app_path`
 normalises them at lane time. See the canonical list in
 [CLAUDE.md](../../CLAUDE.md) §5.3.
 
-**If either script or plist is missing**, the upload step is **soft-skipped**
-with a `"atlandı (script/gsp eksik)"` marker on the summary box and a single
-`UI.important` warning. The lane itself never hard-fails on a missing symbol
-upload — TestFlight upload still succeeds. Quote the marker back to the user
-when relaying results so they know symbols did not land.
+**If discovery resolves nothing**, the `test_flight` upload step is
+**soft-skipped** with a `"atlandı (upload-symbols bulunamadı)"` or
+`"atlandı (GoogleService-Info.plist bulunamadı)"` marker on the summary box and
+a single `UI.important` warning. The lane itself never hard-fails on a missing
+symbol upload — TestFlight upload still succeeds. Quote the marker back to the
+user when relaying results so they know symbols did not land.
 
 ## iOS — three ways to invoke
 
@@ -112,8 +136,10 @@ actions:
       lane: upload_dsyms
 ```
 
-This lane errors hard (`UI.user_error!`) if script or plist is missing — that
-is intentional: a standalone symbol upload that silently skips is useless.
+This lane errors hard (`UI.user_error!`) if auto-discovery cannot locate the
+`upload-symbols` binary or the `GoogleService-Info.plist` — that is
+intentional: a standalone symbol upload that silently skips is useless. The
+error message lists every discovery tier that was checked.
 
 ### Path C — Upstream change (out of scope for a consumer)
 
@@ -130,7 +156,7 @@ Two separate mechanisms, only one of which fastlane_cli touches:
   Gradle plugin during `bundleRelease` (a side-effect of
   `flutter build appbundle --release`), when `mappingFileUploadEnabled` is
   true (the plugin default). fastlane_cli does **nothing** for it.
-- **NDK native symbols** — wired (since v0.8.0). The `internal_testing` and
+- **NDK native symbols** — wired (since v0.9.0). The `internal_testing` and
   `production` lanes in
   [`fastlane/android/Fastfile`](../../fastlane/android/Fastfile), when
   `upload_symbols: "true"`, run the Crashlytics native-symbol Gradle task
@@ -198,11 +224,17 @@ Quote the summary box's symbols line back to the user.
 **iOS** `test_flight` — `Symbols` line:
 
 - `Symbols : atlandı` — `upload_symbols` was false (default).
-- `Symbols : atlandı (script/gsp eksik)` — flag was true but env missing.
-- `Symbols : yüklendi (<dsym path>)` — upload succeeded.
+- `Symbols : atlandı (upload-symbols bulunamadı)` — flag was true but the
+  binary could not be discovered (no Pods, no SwiftPM DerivedData, no override).
+- `Symbols : atlandı (GoogleService-Info.plist bulunamadı)` — flag was true but
+  no plist could be discovered.
+- `Symbols : yüklendi (kaynak: <source>)` — upload succeeded. `<source>` is
+  one of `explicit override`, `CocoaPods`, `SwiftPM DerivedData`,
+  `SwiftPM DerivedData → cache`, `vendored (ios/scripts)` — so the user can see
+  WHERE the binary was found.
 
 For Path B (`upload_dsyms`) the summary title is `iOS · dSYM yüklendi (Crashlytics)`
-and the box lists the script, plist, and dSYM paths used.
+and the box lists the script, the script source, the plist, and the dSYM paths used.
 
 **Android** `internal_testing` / `production` — `NDK symbols` line:
 
@@ -216,9 +248,17 @@ and the box lists the script, plist, and dSYM paths used.
 
 ## Troubleshooting
 
-- **`upload-symbols: command not found` or `Permission denied`** — the env
-  path points at a file that doesn't exist or isn't executable. Re-run
-  `find ios -name upload-symbols` and `chmod +x` the result.
+- **`upload-symbols: command not found` or `Permission denied`** — an explicit
+  override points at a file that doesn't exist or isn't executable, or
+  auto-discovery cached a non-executable copy. The cache copy is `chmod 0755`-ed
+  on write; if the source binary was bad, delete
+  `~/Library/Caches/fastlane_cli/upload-symbols` and re-run so discovery
+  re-copies. For non-standard layouts, set `IOS_UPLOAD_SYMBOLS_SCRIPT`
+  explicitly after `chmod +x` the binary.
+- **upload-symbols not found at all** — for a SwiftPM-Firebase app, do a
+  clean build first so DerivedData contains the `firebase-ios-sdk` checkout;
+  auto-discovery globs DerivedData for it. For a CocoaPods app, run
+  `pod install`.
 - **`Couldn't find a valid project for GoogleAppID`** — `GoogleService-Info.plist`
   is the wrong one (e.g. dev vs prod). Crashlytics keys are app-id-scoped.
 - **dSYMs missing from the xcarchive** — Flutter release builds default to
@@ -240,7 +280,11 @@ and the box lists the script, plist, and dSYM paths used.
   profile (`resolve_flavor`).
 - Edit a consumer app's `build.gradle.kts` from fastlane_cli — the
   `nativeSymbolUploadEnabled` line is the user's one-time setup.
+- Tell the user to hand-`cp` the `upload-symbols` binary out of DerivedData
+  and pin `IOS_UPLOAD_SYMBOLS_SCRIPT` — that is exactly the fragile workflow
+  v0.8.0's auto-discovery + per-user cache removed. Mention the env vars only
+  as overrides for non-standard layouts.
 - Add `IOS_UPLOAD_SYMBOLS_SCRIPT` to fastlane_cli's repo `.env.example` with
   a concrete path — the path is project-layout-dependent (Pods vs SPM vs
-  custom). Document only the variable name and the `find` command.
+  custom), and auto-discovery handles the standard layouts anyway.
 - Strip the `Symbols` line from the summary when relaying results.
