@@ -281,8 +281,98 @@ module FastlaneCliConfig
   # FastFile context. Top-level `fastlane/Fastfile` already does this:
   #   import File.expand_path("android/Fastfile", __dir__)
   #   import File.expand_path("ios/Fastfile",     __dir__)
+  #
+  # v0.4.5: Pin the working directory to the FastFile's parent (runner root)
+  # for the duration of the sub-lane invocation. Without this, a previous
+  # build step (`flutter build ipa` → xcodebuild → pod install, or
+  # `flutter clean` / a temp-dir teardown) can leave the parent Ruby process's
+  # cwd pointing at a now-deleted directory. When `runner.execute` then
+  # runs the next sub-lane and `DocsGenerator.run` calls
+  # `FastlaneCore::FastlaneFolder.path` (which calls `Dir.getwd`), Ruby
+  # raises `Errno::ENOENT - No such file or directory - getcwd`. This
+  # mirrors what `Fastlane::LaneManager.cruise_lane` does for the outer
+  # CLI invocation (`Dir.chdir(File.expand_path("..", fastfile_path))`).
   def run_subline(fastfile, platform, lane, options = {})
-    fastfile.runner.execute(lane.to_sym, platform.to_sym, options)
+    runner_root = resolve_runner_root_for_subline(fastfile)
+
+    if runner_root.nil?
+      # No path resolvable AND current cwd is healthy enough to keep using.
+      # Just forward — there's nothing better to chdir to.
+      return fastfile.runner.execute(lane.to_sym, platform.to_sym, options)
+    end
+
+    # Capture the cwd to restore *before* chdir-ing, but tolerate
+    # Errno::ENOENT from `Dir.pwd` — if we're already in a deleted
+    # directory the only sane restore target IS `runner_root` itself, so
+    # there's nothing else to remember.
+    #
+    # We intentionally avoid the `Dir.chdir(path) { block }` form here:
+    # Ruby's block form calls `Dir.getwd` internally to save the cwd for
+    # restoration, which raises immediately if the current directory has
+    # been deleted (exactly the bug we're trying to fix). The manual
+    # capture-then-chdir below sidesteps that.
+    saved_cwd = begin
+      Dir.pwd
+    rescue Errno::ENOENT
+      nil
+    end
+
+    Dir.chdir(runner_root)
+    begin
+      fastfile.runner.execute(lane.to_sym, platform.to_sym, options)
+    ensure
+      # Restore the previous cwd if it still exists; otherwise stay in
+      # runner_root (a known-good directory). Never re-raise from the
+      # restore — that would mask the lane's real exception.
+      begin
+        if saved_cwd && Dir.exist?(saved_cwd)
+          Dir.chdir(saved_cwd)
+        end
+      rescue StandardError
+        # Swallow — runner_root is a perfectly valid resting cwd.
+      end
+    end
+  end
+
+  # Determine the directory we should chdir into before invoking a sub-lane.
+  # Resolution order:
+  #   1. `fastfile.path` (public-ish accessor; not always defined on
+  #      `Fastlane::FastFile` but call sites' test doubles may expose it).
+  #   2. `fastfile.instance_variable_get(:@path)` — what
+  #      `Fastlane::FastFile#initialize` actually stores.
+  #   3. `FastlaneCore::FastlaneFolder.fastfile_path` — the same lookup
+  #      `cruise_lane` uses when no path is passed.
+  # Returns an absolute directory path, or nil if nothing resolves AND the
+  # current cwd is still readable (caller can run without chdir). Raises
+  # `Errno::ENOENT` cwd from `Dir.pwd` are tolerated — we deliberately do
+  # NOT call `Dir.pwd` as part of the resolution because that's exactly
+  # the call that crashes when the cwd has been removed.
+  def resolve_runner_root_for_subline(fastfile)
+    candidate_path = nil
+
+    if fastfile.respond_to?(:path)
+      begin
+        candidate_path = fastfile.path
+      rescue StandardError
+        candidate_path = nil
+      end
+    end
+
+    if blank?(candidate_path) && fastfile.respond_to?(:instance_variable_get)
+      candidate_path = fastfile.instance_variable_get(:@path)
+    end
+
+    if blank?(candidate_path) && defined?(FastlaneCore::FastlaneFolder)
+      begin
+        candidate_path = FastlaneCore::FastlaneFolder.fastfile_path
+      rescue StandardError
+        candidate_path = nil
+      end
+    end
+
+    return nil if blank?(candidate_path)
+
+    File.expand_path("..", candidate_path.to_s)
   end
 
   def app_root_prefixed_option_tokens(options = {}, allowed_keys: nil, path_keys: [])

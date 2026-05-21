@@ -639,6 +639,130 @@ RSpec.describe FastlaneCliConfig do
         described_class.run_subline(:android, :internal_testing, {})
       }.to raise_error(StandardError)
     end
+
+    # v0.4.5 — cwd-loss regression guard.
+    #
+    # `cruise_lane` wraps the outer invocation in
+    #   Dir.chdir(File.expand_path("..", fastfile_path)) { ... }
+    # so any action that calls `FastlaneCore::FastlaneFolder.path` /
+    # `Dir.getwd` finds a real directory. Sub-lane invocations called via
+    # `run_subline` did NOT get that wrapper before v0.4.5, so a previous
+    # build step that left the parent process's cwd pointing at a deleted
+    # temp dir caused the next sub-lane's `DocsGenerator.run` to crash with
+    # `Errno::ENOENT - No such file or directory - getcwd`.
+    describe "cwd pinning (v0.4.5)" do
+      it "wraps runner.execute in Dir.chdir(runner_root) when fastfile.path is set" do
+        Dir.mktmpdir("runner_root_") do |runner_dir|
+          real_runner = File.realpath(runner_dir)
+          fastfile_path = File.join(real_runner, "fastlane", "Fastfile")
+          FileUtils.mkdir_p(File.dirname(fastfile_path))
+          FileUtils.touch(fastfile_path)
+
+          chdir_calls = []
+          received_log = []
+          runner_double = Object.new
+          runner_double.define_singleton_method(:execute) do |lane, platform, params|
+            # Confirm we're actually inside the chdir block when execute runs.
+            chdir_calls << Dir.pwd
+            received_log << [lane, platform, params]
+            :ok
+          end
+
+          ff = Object.new
+          ff.define_singleton_method(:runner) { runner_double }
+          ff.define_singleton_method(:path) { fastfile_path }
+
+          # Run from a known cwd that is NOT runner_root, so we can prove
+          # the chdir happened.
+          Dir.chdir(real_runner) do
+            described_class.run_subline(ff, :ios, :test_flight, {})
+          end
+
+          expected_pin = File.expand_path("..", fastfile_path)
+          expect(chdir_calls.size).to eq(1)
+          expect(File.realpath(chdir_calls.first)).to eq(File.realpath(expected_pin))
+          expect(received_log).to eq([[:test_flight, :ios, {}]])
+        end
+      end
+
+      it "recovers when the parent process's cwd has been deleted (regression guard)" do
+        # Simulate the production failure mode:
+        #  1. Build step chdir'd into a temp dir.
+        #  2. The temp dir got deleted (xcodebuild / pod install / flutter
+        #     clean tear-down).
+        #  3. Parent Ruby process's cwd now references a phantom inode;
+        #     `Dir.pwd` raises Errno::ENOENT.
+        #  4. The next sub-lane must NOT crash on `Dir.getwd`.
+        Dir.mktmpdir("runner_pin_") do |runner_dir|
+          real_runner = File.realpath(runner_dir)
+          fastfile_path = File.join(real_runner, "fastlane", "Fastfile")
+          FileUtils.mkdir_p(File.dirname(fastfile_path))
+          FileUtils.touch(fastfile_path)
+
+          received_log = []
+          runner_double = Object.new
+          runner_double.define_singleton_method(:execute) do |lane, platform, params|
+            # Inside the chdir-pinned block: Dir.pwd MUST succeed.
+            pwd_inside = Dir.pwd
+            received_log << [lane, platform, params, pwd_inside]
+            :ok
+          end
+
+          ff = Object.new
+          ff.define_singleton_method(:runner) { runner_double }
+          ff.define_singleton_method(:path) { fastfile_path }
+
+          # Capture a safe cwd to return to once the example finishes — we
+          # can't rely on `Dir.pwd` after the rm_r, and the spec_helper's
+          # around blocks may try to read it.
+          safe_cwd = Dir.pwd
+
+          ghost_dir = Dir.mktmpdir("ghost_cwd_")
+          begin
+            Dir.chdir(ghost_dir)
+            FileUtils.rm_r(ghost_dir)
+            # We are now in a deleted directory. Dir.pwd should raise.
+            expect { Dir.pwd }.to raise_error(Errno::ENOENT)
+
+            # The fix: run_subline chdirs into runner_root before executing,
+            # so getcwd-dependent code (DocsGenerator) sees a real path.
+            expect {
+              described_class.run_subline(ff, :ios, :test_flight, {})
+            }.not_to raise_error
+
+            expect(received_log.size).to eq(1)
+            inside_pwd = received_log.first[3]
+            expect(File.realpath(inside_pwd)).to eq(File.realpath(File.expand_path("..", fastfile_path)))
+          ensure
+            # After the chdir block exits, Ruby tries to chdir back to the
+            # ghost dir. That fails silently inside Dir.chdir's ensure on
+            # some libcs, but on macOS the saved cwd is the ghost — so
+            # explicitly return to a known-good directory.
+            Dir.chdir(safe_cwd)
+          end
+        end
+      end
+
+      it "falls back gracefully when fastfile.path is unavailable and FastlaneCore is undefined" do
+        # If neither fastfile.path / @path nor FastlaneCore::FastlaneFolder
+        # resolves, run_subline must still forward to runner.execute (no
+        # chdir, no crash).
+        received_log = []
+        runner_double = Object.new
+        runner_double.define_singleton_method(:execute) do |lane, platform, params|
+          received_log << [lane, platform, params]
+          :ok
+        end
+        ff = Object.new
+        ff.define_singleton_method(:runner) { runner_double }
+        # NOTE: deliberately no `.path` and no `@path`.
+
+        expect {
+          described_class.run_subline(ff, :android, :internal_testing, {})
+        }.not_to raise_error
+        expect(received_log).to eq([[:internal_testing, :android, {}]])
+      end
+    end
   end
 
   describe ".with_clean_subprocess_env" do
