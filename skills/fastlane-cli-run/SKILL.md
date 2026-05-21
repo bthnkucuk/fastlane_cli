@@ -9,8 +9,8 @@ Use this skill when the user describes an outcome (in plain English/Turkish)
 and you must pick the correct `fastlane_cli` action to invoke.
 
 **Critical rule**: do NOT rely on a hardcoded list of action ids. Action ids
-are profile-dependent — the user's `cli_profile.yaml` may add, replace, or
-remove entries on top of fastlane_cli's bundled `cli_profile.base.yaml`.
+are profile-dependent — the user's `profile.yaml` may add, replace, or
+remove entries on top of fastlane_cli's bundled `profile.base.yaml`.
 Always discover the active set at runtime.
 
 ## Step 1 — Discover available actions
@@ -18,7 +18,7 @@ Always discover the active set at runtime.
 Call the JSON listing subcommand against the user's profile:
 
 ```sh
-fastlane_cli list --json --profile <path-to-cli_profile.yaml>
+fastlane_cli list --json --profile <path-to-profile.yaml>
 ```
 
 Expected shape (one entry per resolved action, in profile order):
@@ -70,7 +70,7 @@ Parsing approach:
 Once an `id` is chosen:
 
 ```sh
-fastlane_cli run <action-id> --profile <path-to-cli_profile.yaml>
+fastlane_cli run <action-id> --profile <path-to-profile.yaml>
 ```
 
 Useful flags:

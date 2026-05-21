@@ -1,4 +1,4 @@
-# Shared Fastlane CLI profile defaults. Per-app cli_profile.yaml files are
+# Shared Fastlane CLI profile defaults. Per-app profile.yaml files are
 # merged on top of this base — they only need to declare app-specific fields
 # (name, root_path, identifiers) and any overrides for actions.
 #

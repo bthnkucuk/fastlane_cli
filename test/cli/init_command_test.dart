@@ -30,7 +30,7 @@ void main() {
       );
       final runner = CommandRunner<int>('test', 'test')..addCommand(command);
       final code = await runner.run(<String>['init', ...args]);
-      final target = File(p.join(tempDir.path, 'cli_profile.yaml'));
+      final target = File(p.join(tempDir.path, 'profile.yaml'));
       return (
         exit: code ?? 0,
         stdout: out.toString(),
@@ -39,7 +39,7 @@ void main() {
       );
     }
 
-    test('writes minimal cli_profile.yaml in cwd', () async {
+    test('writes minimal profile.yaml in cwd', () async {
       final result = await runInit(const <String>['--app-name', 'demo']);
       expect(result.exit, 0);
       expect(result.written, isNotNull);
@@ -49,7 +49,7 @@ void main() {
     });
 
     test('refuses to overwrite without --force', () async {
-      final target = File(p.join(tempDir.path, 'cli_profile.yaml'))
+      final target = File(p.join(tempDir.path, 'profile.yaml'))
         ..writeAsStringSync('# existing');
 
       final result = await runInit(const <String>[]);
@@ -59,7 +59,7 @@ void main() {
     });
 
     test('overwrites with --force', () async {
-      File(p.join(tempDir.path, 'cli_profile.yaml'))
+      File(p.join(tempDir.path, 'profile.yaml'))
           .writeAsStringSync('# old');
 
       final result = await runInit(const <String>['--force']);

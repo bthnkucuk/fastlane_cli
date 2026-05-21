@@ -9,7 +9,7 @@
 # Tarball layout (consumed by dist/homebrew/Formula/fastlane_cli.rb):
 #   build/fastlane_cli          # AOT-compiled binary -> bin.install
 #   fastlane/                   # runner: Fastfile, Gemfile, common_helpers.rb,
-#                               # storepilot_bridge.rb, actions/, cli_profile.base.yaml,
+#                               # storepilot_bridge.rb, actions/, profile.base.yaml,
 #                               # ios/defaults/, AND sync_metadata_fallbacks.rb (relocated
 #                               # from bin/ at packaging time so the formula's
 #                               # `(share/"fastlane_cli").install "fastlane"` sweeps it in).

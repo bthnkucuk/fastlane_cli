@@ -33,7 +33,7 @@ and emitted by `lib/src/cli/list_command.dart`. Results are cached for 5
 seconds inside the autocomplete runtime.
 
 This means **the spec never goes stale** when consumers add custom actions
-in their `cli_profile.yaml` — the dropdown reflects whatever
+in their `profile.yaml` — the dropdown reflects whatever
 `fastlane_cli list --json` reports.
 
 ## Testing locally with Amazon Q / Kiro CLI

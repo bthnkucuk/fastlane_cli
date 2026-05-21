@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 /// Resolution order (first match wins):
 ///
 /// 1. The supplied [profileOverride] (typically the `fastlane_runner_path`
-///    field from `cli_profile.yaml`).
+///    field from `profile.yaml`).
 /// 2. The directory containing [Platform.resolvedExecutable]. We walk
 ///    upwards looking for either `share/fastlane_cli/fastlane/` (Homebrew
 ///    install layout) or `fastlane/` (source / `dart compile exe` layout).
@@ -93,7 +93,7 @@ class RunnerResolver {
     throw StateError(
       'fastlane runner not found. Tried:\n'
       '${attempted.map((path) => '  - $path').join('\n')}\n'
-      'Set `app.fastlane_runner_path` in cli_profile.yaml to override, or '
+      'Set `app.fastlane_runner_path` in profile.yaml to override, or '
       'reinstall fastlane_cli so the bundled fastlane/ directory ships next '
       'to the binary.',
     );

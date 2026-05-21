@@ -17,7 +17,7 @@ void main() {
       tempDir = await Directory.systemTemp.createTemp('list_cmd_');
       // Provide a discoverable profile file so the resolver succeeds; the
       // actual contents are ignored because we inject _StaticLoader.
-      File(p.join(tempDir.path, 'cli_profile.yaml'))
+      File(p.join(tempDir.path, 'profile.yaml'))
           .writeAsStringSync('app:');
     });
 

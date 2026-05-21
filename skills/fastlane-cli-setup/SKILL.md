@@ -1,14 +1,14 @@
 ---
 name: fastlane-cli-setup
-description: Scaffold a per-app `cli_profile.yaml` and the credential env vars needed to drive fastlane_cli in a fresh Flutter project. Triggers on: setup, scaffold, init, initialize, new project, cli_profile.yaml, configure fastlane_cli, onboard, bootstrap, getting started.
+description: Scaffold a per-app `profile.yaml` and the credential env vars needed to drive fastlane_cli in a fresh Flutter project. Triggers on: setup, scaffold, init, initialize, new project, profile.yaml, configure fastlane_cli, onboard, bootstrap, getting started.
 ---
 
 # fastlane_cli — first-time setup
 
 Use this skill when the user has a Flutter project that does **not** yet have a
-`cli_profile.yaml` and wants to start driving lanes through `fastlane_cli`.
+`profile.yaml` and wants to start driving lanes through `fastlane_cli`.
 
-Goal: produce a minimal, working `cli_profile.yaml` at the project root (next
+Goal: produce a minimal, working `profile.yaml` at the project root (next
 to `pubspec.yaml`) and confirm the credential env vars for the platforms they
 plan to ship.
 
@@ -23,12 +23,12 @@ Ask (or detect from the filesystem) before generating anything:
 4. **Android package name** — e.g. `com.example.app` (only if Android).
 5. **Flavors** — single flavor or multiple (most projects: none).
 6. **Project root** — absolute path. The profile lives here as
-   `cli_profile.yaml`.
+   `profile.yaml`.
 
 Do **not** invent values. If unknown, leave the field commented out with a
 TODO marker.
 
-## Step 2 — Generate `cli_profile.yaml`
+## Step 2 — Generate `profile.yaml`
 
 Prefer the future `fastlane_cli init` subcommand (post-1.0, see
 [ROADMAP.md](../../ROADMAP.md) §7). When that is unavailable, write the file
@@ -36,7 +36,7 @@ directly with this minimal template (omit blocks for platforms the user
 isn't shipping):
 
 ```yaml
-# cli_profile.yaml — merged on top of fastlane_cli's bundled cli_profile.base.yaml.
+# profile.yaml — merged on top of fastlane_cli's bundled profile.base.yaml.
 # Only declare app-specific fields here.
 
 app:
@@ -63,7 +63,7 @@ app:
 
 # Action / category overrides: declare by id to replace the base entry; new
 # ids append. Only needed when ONE lane needs a value different from the
-# profile-wide default_options. See fastlane/cli_profile.base.yaml in
+# profile-wide default_options. See fastlane/profile.base.yaml in
 # fastlane_cli for the canonical list of base actions.
 # actions:
 #   - id: <id>
@@ -110,7 +110,7 @@ export APP_STORE_CONNECT_API_KEY_ISSUER_ID="xxxx-xxxx-xxxx-xxxx"
 export APP_STORE_CONNECT_API_KEY_FILEPATH="/abs/path/AuthKey_ABC123.p8"
 ```
 
-Optional identifier override (otherwise read from `cli_profile.yaml`):
+Optional identifier override (otherwise read from `profile.yaml`):
 
 ```sh
 export IOS_APP_IDENTIFIER="com.example.app"
@@ -143,7 +143,7 @@ export FASTLANE_PUBSPEC_PATH="/abs/path/to/pubspec.yaml"  # only if non-standard
 
 From inside the Flutter app's root directory (or any subdirectory of it),
 no flags required — `fastlane_cli` walks up looking for the dir that
-contains both `pubspec.yaml` and `fastlane/cli_profile.yaml`:
+contains both `pubspec.yaml` and `fastlane/profile.yaml`:
 
 ```sh
 cd /path/to/your-flutter-app
@@ -151,7 +151,7 @@ fastlane_cli doctor      # validate env (see fastlane-doctor skill)
 fastlane_cli list --json # confirm the profile loads
 ```
 
-The CLI prints `discovered: /abs/path/to/fastlane/cli_profile.yaml` on
+The CLI prints `discovered: /abs/path/to/fastlane/profile.yaml` on
 stderr so the user sees which profile was picked up. `.env` files placed
 at `<app>/fastlane/.env`, `<app>/.env`, and `<app>/fastlane/.env.<flavor>`
 (when `FASTLANE_FLAVOR` is set) are auto-forwarded into the lane process —
@@ -160,8 +160,8 @@ no `source fastlane/.env` needed.
 Explicit-profile path still works for scripting / CI:
 
 ```sh
-fastlane_cli doctor --profile ./fastlane/cli_profile.yaml
-fastlane_cli list --json --profile ./fastlane/cli_profile.yaml
+fastlane_cli doctor --profile ./fastlane/profile.yaml
+fastlane_cli list --json --profile ./fastlane/profile.yaml
 ```
 
 If both succeed, the user is ready. Hand off to `fastlane-cli-run` for "how do

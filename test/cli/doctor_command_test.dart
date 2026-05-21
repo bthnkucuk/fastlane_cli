@@ -14,7 +14,7 @@ void main() {
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('doctor_cmd_');
-      File(p.join(tempDir.path, 'cli_profile.yaml'))
+      File(p.join(tempDir.path, 'profile.yaml'))
           .writeAsStringSync('app:');
     });
 

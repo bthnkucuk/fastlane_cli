@@ -24,7 +24,7 @@ class FastlaneCliLauncher {
 
   /// Optional four-tier profile resolver. When provided (the default in
   /// production via [FastlaneCliRunner]), the launcher will fall back to the
-  /// same `--profile → $FASTLANE_CLI_PROFILE → walk-up → ./cli_profile.yaml`
+  /// same `--profile → $FASTLANE_CLI_PROFILE → walk-up → ./profile.yaml`
   /// chain that subcommands use. Left nullable so the legacy "Missing
   /// --profile option" branch still compiles and a few unit tests can opt
   /// out cleanly.
@@ -32,7 +32,7 @@ class FastlaneCliLauncher {
 
   Future<int> run(List<String> arguments) async {
     final parser = ArgParser()
-      ..addOption('profile', abbr: 'p', help: 'Path to cli_profile.yaml')
+      ..addOption('profile', abbr: 'p', help: 'Path to profile.yaml')
       ..addOption(
         'lang',
         allowed: const <String>['tr', 'en'],

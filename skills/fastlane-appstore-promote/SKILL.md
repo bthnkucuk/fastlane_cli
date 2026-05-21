@@ -72,7 +72,7 @@ store listing. Use `ios_update_metadata` for metadata changes, or the
 - App Store Connect API key — `APP_STORE_CONNECT_API_KEY_JSON_PATH`, or the
   `APP_STORE_CONNECT_API_KEY_ID` + `_ISSUER_ID` + `_FILEPATH` triple. A
   `FASTLANE_SESSION` cookie is NOT accepted for this lane.
-- Bundle identifier via `app.ios.app_identifier` in `cli_profile.yaml` or
+- Bundle identifier via `app.ios.app_identifier` in `profile.yaml` or
   `IOS_APP_IDENTIFIER` / `FASTLANE_APP_IDENTIFIER` env.
 - The target build must already be uploaded to TestFlight and finished
   processing (`VALID`).

@@ -152,6 +152,7 @@ platform :android do
 
     build_parts = ["#{flutter_cmd} build apk --#{build_type}"]
     build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
+    build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :apk))
     sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
 
     firebase_app_distribution(
@@ -189,6 +190,7 @@ platform :android do
     build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
     target = FastlaneCliConfig.flutter_target(options)
     build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+    build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :appbundle))
     sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
 
     upload_to_play_store(
@@ -237,6 +239,7 @@ platform :android do
     build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
     target = FastlaneCliConfig.flutter_target(options)
     build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+    build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :appbundle))
     sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
 
     upload_to_play_store(
@@ -280,6 +283,7 @@ platform :android do
     build_parts << "--flavor #{Shellwords.escape(flavor)}" unless FastlaneCliConfig.blank?(flavor)
     target = FastlaneCliConfig.flutter_target(options)
     build_parts << "--target #{Shellwords.escape(target)}" unless FastlaneCliConfig.blank?(target)
+    build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :apk))
     sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
 
     expected_apk = FastlaneCliConfig.resolve_app_path(

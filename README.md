@@ -3,7 +3,7 @@
 ![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bthnkucuk/0538334b34cc8408d52d5e058d12be05/raw/fastlane_cli-coverage.json)
 
 A terminal-first Fastlane assistant for Flutter projects. Drop a
-`cli_profile.yaml` next to your own `fastlane/` folder and `fastlane_cli`
+`profile.yaml` next to your own `fastlane/` folder and `fastlane_cli`
 exposes your iOS + Android lanes through a categorized TUI (sidebar, slash
 palette, live logs, run tabs) — no Ruby bootstrap, no per-app glue scripts.
 Intended for any Flutter app that already has, or wants to add, Fastlane
@@ -30,7 +30,7 @@ tagged release ships — see [ROADMAP §E1](ROADMAP.md). Until then, use the
 git clone https://github.com/bthnkucuk/fastlane_cli
 cd fastlane_cli
 dart pub get
-dart run bin/fastlane_cli.dart --profile /abs/path/to/cli_profile.yaml
+dart run bin/fastlane_cli.dart --profile /abs/path/to/profile.yaml
 ```
 
 Toolchain is FVM-pinned ([`.fvmrc`](.fvmrc)); install [direnv](https://direnv.net/) for project-scoped `dart` on PATH ([`.envrc`](.envrc) adds the FVM Dart SDK). Without direnv, prefix commands with `fvm dart …`.
@@ -44,24 +44,24 @@ Requirements:
 ## Quickstart
 
 Zero-config path — point `fastlane_cli` at a Flutter app that already has
-`fastlane/cli_profile.yaml` and it discovers everything else:
+`fastlane/profile.yaml` and it discovers everything else:
 
 ```bash
 cd /path/to/your-flutter-app
-fastlane_cli                       # auto-discovers fastlane/cli_profile.yaml
+fastlane_cli                       # auto-discovers fastlane/profile.yaml
 fastlane_cli list                  # enumerate actions
 fastlane_cli doctor                # validate env
 fastlane_cli run get_version_data  # run a lane
 ```
 
 On the first run from inside an app, the CLI prints one line to stderr like
-`discovered: /abs/path/to/fastlane/cli_profile.yaml` so you can see where
+`discovered: /abs/path/to/fastlane/profile.yaml` so you can see where
 the profile came from. The walk-up search climbs up to 8 levels looking for
 the first directory containing both `pubspec.yaml` and
-`fastlane/cli_profile.yaml`, so it works from anywhere inside the project
+`fastlane/profile.yaml`, so it works from anywhere inside the project
 tree (e.g. `lib/src/foo/`).
 
-The minimal `cli_profile.yaml`, placed at `<app>/fastlane/cli_profile.yaml`:
+The minimal `profile.yaml`, placed at `<app>/fastlane/profile.yaml`:
 
 ```yaml
 app:
@@ -73,7 +73,7 @@ app:
 
 Everything else — shortcuts, categories, every iOS / Android / general
 action — is inherited from the bundled
-[`fastlane/cli_profile.base.yaml`](fastlane/cli_profile.base.yaml). You only
+[`fastlane/profile.base.yaml`](fastlane/profile.base.yaml). You only
 override entries by re-declaring an `action` / `category` with the same
 `id`, or add new ones by giving them a fresh `id`. See
 [Where things go](#where-things-go) for merge semantics.
@@ -91,12 +91,12 @@ instead of re-declaring every base action just to append two keys:
 
 ```yaml
 app:
-  name: narravo
+  name: staging
   root_path: ..
 
 default_options:
-  flavor: narravo
-  target: lib/main_narravo.dart
+  flavor: staging
+  target: lib/main_staging.dart
 ```
 
 `default_options` is a flat map of `key: value` scalar strings, a sibling of
@@ -139,12 +139,12 @@ env (secret-looking keys are redacted to `***`).
 ### Explicit-profile path (scripting / CI)
 
 ```bash
-fastlane_cli --profile /abs/path/to/cli_profile.yaml
+fastlane_cli --profile /abs/path/to/profile.yaml
 fastlane_cli --profile /abs/path/to/some-app-dir   # or a directory
 ```
 
-`--profile` accepts either a `cli_profile.yaml` file path or a directory
-(in which case `cli_profile.yaml` and `fastlane/cli_profile.yaml` are
+`--profile` accepts either a `profile.yaml` file path or a directory
+(in which case `profile.yaml` and `fastlane/profile.yaml` are
 probed inside it).
 
 CLI flags:
@@ -217,8 +217,8 @@ do not use Firebase App Distribution you can ignore the
 
 ## Where things go
 
-The CLI loads your `cli_profile.yaml` and merges it on top of the bundled
-[`fastlane/cli_profile.base.yaml`](fastlane/cli_profile.base.yaml). Merge
+The CLI loads your `profile.yaml` and merges it on top of the bundled
+[`fastlane/profile.base.yaml`](fastlane/profile.base.yaml). Merge
 rules (canonical implementation:
 [`lib/src/services/profile_loader.dart`](lib/src/services/profile_loader.dart)):
 
@@ -244,13 +244,13 @@ at this repo's `fastlane/` directory. Runner auto-resolution is tracked in
 > [`lib/src/cli/profile_resolver.dart`](lib/src/cli/profile_resolver.dart)):
 >
 > 1. `--profile <path>` (or `-p <path>`) on the command line. May be a
->    `cli_profile.yaml` file OR a directory (we probe `cli_profile.yaml`
->    then `fastlane/cli_profile.yaml` inside it).
+>    `profile.yaml` file OR a directory (we probe `profile.yaml`
+>    then `fastlane/profile.yaml` inside it).
 > 2. `$FASTLANE_CLI_PROFILE` environment variable (same file-or-dir rules).
 > 3. Walk-up app discovery: from the current working directory, climb up
 >    to 8 levels looking for the first dir containing both `pubspec.yaml`
->    and `fastlane/cli_profile.yaml`.
-> 4. `./cli_profile.yaml` in the current working directory.
+>    and `fastlane/profile.yaml`.
+> 4. `./profile.yaml` in the current working directory.
 >
 > When discovery (#1-dir, #2-dir, or #3) resolves the profile, the CLI
 > prints one line to stderr: `discovered: <abs-path>`.
@@ -271,13 +271,13 @@ no positional argument and no recognized subcommand, the binary delegates to
 
 | Flag | Description |
 |---|---|
-| `--profile`, `-p` | Path to `cli_profile.yaml`. Falls back to `$FASTLANE_CLI_PROFILE`, then `./cli_profile.yaml`. |
+| `--profile`, `-p` | Path to `profile.yaml`. Falls back to `$FASTLANE_CLI_PROFILE`, then `./profile.yaml`. |
 | `--lang tr\|en` | Override UI language (otherwise taken from the profile's `default_locale`). |
 | `--dry-run` | Build resolved commands and stream them to the log without executing. |
 | `--version`, `-v` | Print `fastlane_cli <version>` and exit 0. Short-circuits before profile resolution and TUI launch. |
 
 ```bash
-fastlane_cli --profile /abs/path/to/cli_profile.yaml --lang en
+fastlane_cli --profile /abs/path/to/profile.yaml --lang en
 ```
 
 #### Interactive prompts
@@ -368,16 +368,16 @@ fastlane_cli list --category ios_release --json
 fastlane_cli init [--app-name <name>] [--platform ios|android|both] [--force]
 ```
 
-Scaffold a minimal `cli_profile.yaml` in the current directory. Writes inline
+Scaffold a minimal `profile.yaml` in the current directory. Writes inline
 comments pointing at the credential env vars for the chosen platform. Exits
-`73` (`EX_CANTCREAT`) if `cli_profile.yaml` already exists and `--force` was
+`73` (`EX_CANTCREAT`) if `profile.yaml` already exists and `--force` was
 not passed.
 
 | Flag | Default | Description |
 |---|---|---|
 | `--app-name` | `my-app` | Value written into `app.name` in the scaffold. |
 | `--platform` | `both` | Which credential-hint comment block to keep. One of `ios`, `android`, `both`. |
-| `--force` | `false` | Overwrite an existing `cli_profile.yaml`. |
+| `--force` | `false` | Overwrite an existing `profile.yaml`. |
 
 ```bash
 fastlane_cli init --app-name my-app --platform ios
@@ -399,7 +399,7 @@ is stable:
   still print to stdout.
 - Exit `1` — one or more required checks failed; lane execution would be
   unsafe.
-- Exit `66` — could not locate `cli_profile.yaml` (same resolution rules as
+- Exit `66` — could not locate `profile.yaml` (same resolution rules as
   every other subcommand).
 
 | Flag | Description |
@@ -407,7 +407,7 @@ is stable:
 | `--profile`, `-p` | Profile path (standard three-tier resolution). |
 
 ```bash
-fastlane_cli doctor --profile ./cli_profile.yaml
+fastlane_cli doctor --profile ./profile.yaml
 ```
 
 ### `fastlane_cli skills install`
@@ -478,7 +478,7 @@ turn invokes `fastlane_cli`.
 
 | Skill | One-liner |
 |---|---|
-| [`fastlane-cli-setup`](skills/fastlane-cli-setup/SKILL.md) | Scaffold a per-app `cli_profile.yaml` and the credential env vars needed to drive fastlane_cli in a fresh Flutter project. |
+| [`fastlane-cli-setup`](skills/fastlane-cli-setup/SKILL.md) | Scaffold a per-app `profile.yaml` and the credential env vars needed to drive fastlane_cli in a fresh Flutter project. |
 | [`fastlane-cli-run`](skills/fastlane-cli-run/SKILL.md) | Translate a natural-language request into a concrete `fastlane_cli run <action-id>` invocation. |
 | [`fastlane-version-bump`](skills/fastlane-version-bump/SKILL.md) | Inspect or bump the Flutter app's pubspec `version: X.Y.Z+N` and reconcile it with the Android Play track and the App Store Connect build number. |
 | [`fastlane-metadata-sync`](skills/fastlane-metadata-sync/SKILL.md) | Pull or push store metadata (titles, descriptions, release notes, screenshots, App Privacy) between the local `fastlane/metadata/` tree and the App Store / Play Console. |

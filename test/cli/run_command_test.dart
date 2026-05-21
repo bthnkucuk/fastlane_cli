@@ -16,7 +16,7 @@ void main() {
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('run_cmd_');
       // Profile file just needs to exist so the resolver succeeds.
-      File(p.join(tempDir.path, 'cli_profile.yaml'))
+      File(p.join(tempDir.path, 'profile.yaml'))
           .writeAsStringSync('app:');
       // Builder requires the fastlane runner directory to exist.
       Directory(p.join(tempDir.path, 'fastlane')).createSync(recursive: true);

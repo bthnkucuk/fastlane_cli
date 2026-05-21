@@ -8,7 +8,7 @@ CliProfile createTestProfile({
 }) {
   return CliProfile(
     appName: 'TestApp',
-    profilePath: '$appRootPath/cli_profile.yaml',
+    profilePath: '$appRootPath/profile.yaml',
     appRootPath: appRootPath,
     fastlanePath: 'fastlane',
     fastlaneRunnerPath: 'fastlane',

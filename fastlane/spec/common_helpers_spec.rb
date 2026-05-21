@@ -169,8 +169,8 @@ RSpec.describe FastlaneCliConfig do
   describe ".crashlytics_symbol_task" do
     it "capitalises the first letter of a single-word flavor" do
       expect(
-        described_class.crashlytics_symbol_task(flavor: "narravo")
-      ).to eq("uploadCrashlyticsSymbolFileNarravoRelease")
+        described_class.crashlytics_symbol_task(flavor: "staging")
+      ).to eq("uploadCrashlyticsSymbolFileStagingRelease")
     end
 
     it "drops the flavor segment when no flavor is given" do
@@ -193,20 +193,84 @@ RSpec.describe FastlaneCliConfig do
 
     it "trims surrounding whitespace from the flavor" do
       expect(
-        described_class.crashlytics_symbol_task(flavor: "  narravo  ")
-      ).to eq("uploadCrashlyticsSymbolFileNarravoRelease")
+        described_class.crashlytics_symbol_task(flavor: "  staging  ")
+      ).to eq("uploadCrashlyticsSymbolFileStagingRelease")
     end
 
     it "honours an explicit build_type override" do
       expect(
-        described_class.crashlytics_symbol_task(flavor: "narravo", build_type: "debug")
-      ).to eq("uploadCrashlyticsSymbolFileNarravoDebug")
+        described_class.crashlytics_symbol_task(flavor: "staging", build_type: "debug")
+      ).to eq("uploadCrashlyticsSymbolFileStagingDebug")
     end
 
     it "falls back to Release when build_type is blank" do
       expect(
-        described_class.crashlytics_symbol_task(flavor: "narravo", build_type: "")
-      ).to eq("uploadCrashlyticsSymbolFileNarravoRelease")
+        described_class.crashlytics_symbol_task(flavor: "staging", build_type: "")
+      ).to eq("uploadCrashlyticsSymbolFileStagingRelease")
+    end
+  end
+
+  describe ".flutter_build_flags" do
+    it "returns no flags when neither option is set" do
+      expect(described_class.flutter_build_flags({}, artifact: :apk)).to eq([])
+      expect(described_class.flutter_build_flags({}, artifact: :appbundle)).to eq([])
+      expect(described_class.flutter_build_flags({}, artifact: :ipa)).to eq([])
+    end
+
+    it "emits --obfuscate with the default split-debug-info dir" do
+      expect(
+        described_class.flutter_build_flags({ obfuscate: "true" }, artifact: :apk)
+      ).to eq(["--obfuscate", "--split-debug-info=build/symbols"])
+    end
+
+    it "obfuscate applies to every artifact" do
+      %i[apk appbundle ipa].each do |artifact|
+        expect(
+          described_class.flutter_build_flags({ obfuscate: true }, artifact: artifact)
+        ).to include("--obfuscate", "--split-debug-info=build/symbols")
+      end
+    end
+
+    it "honours a custom split_debug_info directory" do
+      expect(
+        described_class.flutter_build_flags(
+          { obfuscate: true, split_debug_info: "out/dbg" }, artifact: :ipa
+        )
+      ).to eq(["--obfuscate", "--split-debug-info=out/dbg"])
+    end
+
+    it "ignores split_debug_info when obfuscate is off" do
+      expect(
+        described_class.flutter_build_flags(
+          { split_debug_info: "out/dbg" }, artifact: :apk
+        )
+      ).to eq([])
+    end
+
+    it "honours split_per_abi for :apk" do
+      expect(
+        described_class.flutter_build_flags({ split_per_abi: "true" }, artifact: :apk)
+      ).to eq(["--split-per-abi"])
+    end
+
+    it "ignores split_per_abi for :appbundle" do
+      expect(
+        described_class.flutter_build_flags({ split_per_abi: true }, artifact: :appbundle)
+      ).to eq([])
+    end
+
+    it "ignores split_per_abi for :ipa" do
+      expect(
+        described_class.flutter_build_flags({ split_per_abi: true }, artifact: :ipa)
+      ).to eq([])
+    end
+
+    it "combines obfuscate and split_per_abi for :apk" do
+      expect(
+        described_class.flutter_build_flags(
+          { obfuscate: true, split_per_abi: true }, artifact: :apk
+        )
+      ).to eq(["--obfuscate", "--split-debug-info=build/symbols", "--split-per-abi"])
     end
   end
 

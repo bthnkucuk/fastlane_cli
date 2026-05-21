@@ -69,7 +69,7 @@ not be in git yet. Before running, advise the user to:
 `fastlane/ios/defaults/review_information/` (email, first/last name, phone,
 demo account) ships with placeholder values. If a per-app profile doesn't
 override these, the user must override them in their own
-`cli_profile.yaml` or in the `fastlane/metadata/review_information/` files
+`profile.yaml` or in the `fastlane/metadata/review_information/` files
 before any App Store upload.
 
 ## Recommended workflow

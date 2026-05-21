@@ -1,19 +1,19 @@
 ---
 name: fastlane-cli-layout
-description: Resolve non-standard fastlane folder / `cli_profile.yaml` locations for fastlane_cli — distinguish the app's own `fastlane/` data folder from the bundled runner, pick the right knob (`root_path`, `fastlane_path`, `fastlane_runner_path`), and fix profile-discovery failures (walk-up, `--profile`, `$FASTLANE_CLI_PROFILE`). Triggers on: fastlane folder elsewhere, custom fastlane path, non-standard layout, monorepo, multi-app, profile not found, profile discovery, "Could not locate cli_profile.yaml", FASTLANE_CLI_PROFILE, --profile, walk-up, fastlane_path, fastlane_runner_path, root_path.
+description: Resolve non-standard fastlane folder / `profile.yaml` locations for fastlane_cli — distinguish the app's own `fastlane/` data folder from the bundled runner, pick the right knob (`root_path`, `fastlane_path`, `fastlane_runner_path`), and fix profile-discovery failures (walk-up, `--profile`, `$FASTLANE_CLI_PROFILE`). Triggers on: fastlane folder elsewhere, custom fastlane path, non-standard layout, monorepo, multi-app, profile not found, profile discovery, "Could not locate profile.yaml", FASTLANE_CLI_PROFILE, --profile, walk-up, fastlane_path, fastlane_runner_path, root_path.
 ---
 
 # fastlane_cli — non-standard layouts and profile discovery
 
 Use this skill when the user has a layout that doesn't match the default
-(`<app>/pubspec.yaml` + `<app>/fastlane/cli_profile.yaml`) — monorepos,
+(`<app>/pubspec.yaml` + `<app>/fastlane/profile.yaml`) — monorepos,
 shared CI directories, renamed folders, or a "profile not found" error.
 
 ## Two `fastlane/` folders — do not confuse them
 
 | #   | Folder                                | What's inside                                                                            | Who owns it          | Override knob              |
 | --- | ------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------- | -------------------------- |
-| A   | The **app's own** `fastlane/` folder  | `cli_profile.yaml`, `metadata/`, `screenshots/`, `.env` — app-specific data              | Per consumer app     | `app.root_path` + `app.fastlane_path` |
+| A   | The **app's own** `fastlane/` folder  | `profile.yaml`, `metadata/`, `screenshots/`, `.env` — app-specific data              | Per consumer app     | `app.root_path` + `app.fastlane_path` |
 | B   | The **bundled runner**                | `Fastfile`, `common_helpers.rb`, lane code — identical for every app, ships with the brew binary | fastlane_cli itself   | `app.fastlane_runner_path` (rarely needed) |
 
 Most "fastlane folder is in a different place" questions are about A.
@@ -22,15 +22,15 @@ against an unreleased runner build.
 
 ## Knob A.1 — `app.root_path`
 
-Resolved relative to the directory that contains `cli_profile.yaml` (not
+Resolved relative to the directory that contains `profile.yaml` (not
 cwd). This is the Flutter project root — used to resolve every other
 relative path in the profile, plus `$FASTLANE_APP_ROOT` for lanes.
 
-| Where `cli_profile.yaml` lives        | What `root_path` should be |
+| Where `profile.yaml` lives        | What `root_path` should be |
 | ------------------------------------- | -------------------------- |
-| `<app>/fastlane/cli_profile.yaml`     | `..`                       |
-| `<app>/cli_profile.yaml`              | `.`                        |
-| `<app>/ci/fastlane/cli_profile.yaml`  | `../..`                    |
+| `<app>/fastlane/profile.yaml`     | `..`                       |
+| `<app>/profile.yaml`              | `.`                        |
+| `<app>/ci/fastlane/profile.yaml`  | `../..`                    |
 | Absolute path                         | Allowed, but discouraged — break on machine moves |
 
 ## Knob A.2 — `app.fastlane_path`
@@ -74,18 +74,18 @@ check in `RunnerResolver._isFastlaneDir`).
 ## Profile discovery — `ProfileResolver` precedence
 
 [`ProfileResolver`](../../lib/src/cli/profile_resolver.dart) decides which
-`cli_profile.yaml` to load. Fixed precedence — first hit wins:
+`profile.yaml` to load. Fixed precedence — first hit wins:
 
 1. **`--profile <path>` flag.** Accepts a file or a directory. If a
-   directory, looks inside for `cli_profile.yaml`, then
-   `fastlane/cli_profile.yaml`.
+   directory, looks inside for `profile.yaml`, then
+   `fastlane/profile.yaml`.
 2. **`$FASTLANE_CLI_PROFILE` env var.** Same file-or-dir semantics. Useful
    for shell sessions where you `cd` between apps.
 3. **Walk-up discovery.** From cwd, climbs up to 8 levels looking for the
    first dir that contains both `pubspec.yaml` and
-   `fastlane/cli_profile.yaml`. This is why `fastlane_cli` "just works"
+   `fastlane/profile.yaml`. This is why `fastlane_cli` "just works"
    anywhere inside a standard-layout app.
-4. **`./cli_profile.yaml` in cwd.** Final fallback.
+4. **`./profile.yaml` in cwd.** Final fallback.
 
 When discovery happens via #1-dir, #2-dir, or #3, the CLI prints
 `discovered: <abs path>` on stderr. Profile contents are never logged.
@@ -98,7 +98,7 @@ block.
 
 ```
 User has profile but CLI says "not found"
-└─ Layout matches default (<app>/pubspec.yaml + <app>/fastlane/cli_profile.yaml)?
+└─ Layout matches default (<app>/pubspec.yaml + <app>/fastlane/profile.yaml)?
    ├─ YES → User isn't inside the app dir (or any subdir). cd into it,
    │        or pass --profile <abs path>, or export $FASTLANE_CLI_PROFILE.
    └─ NO  → Custom path. Choose:
@@ -109,8 +109,8 @@ User has profile but CLI says "not found"
                                           env var in onboarding.
 
 User wants fastlane data folder NOT under <root>/fastlane/
-└─ Edit cli_profile.yaml:
-   - app.root_path:       relative path from cli_profile.yaml to app root
+└─ Edit profile.yaml:
+   - app.root_path:       relative path from profile.yaml to app root
    - app.fastlane_path:   relative path from app root to fastlane data dir
    Verify with: fastlane_cli doctor --profile <path>
 
@@ -125,28 +125,28 @@ User wants to point at a different bundled runner
 
 ```
 /repo/
-  apps/aiNote/
+  apps/myapp/
     pubspec.yaml
-    cli_profile.yaml             ← profile here, not under fastlane/
-  tools/fastlane/aiNote/
+    profile.yaml             ← profile here, not under fastlane/
+  tools/fastlane/myapp/
     Fastfile-aside-data...       ← per-app fastlane data
 ```
 
 ```yaml
 app:
-  name: aiNote
+  name: MyApp
   root_path: .
-  fastlane_path: ../../tools/fastlane/aiNote
+  fastlane_path: ../../tools/fastlane/myapp
 ```
 
-Profile won't be found by walk-up (no `<root>/fastlane/cli_profile.yaml`).
+Profile won't be found by walk-up (no `<root>/fastlane/profile.yaml`).
 Use either:
 
 ```sh
-fastlane_cli --profile /repo/apps/aiNote/cli_profile.yaml
+fastlane_cli --profile /repo/apps/myapp/profile.yaml
 # or
-export FASTLANE_CLI_PROFILE=/repo/apps/aiNote
-fastlane_cli   # dir form — looks for cli_profile.yaml then fastlane/cli_profile.yaml
+export FASTLANE_CLI_PROFILE=/repo/apps/myapp
+fastlane_cli   # dir form — looks for profile.yaml then fastlane/profile.yaml
 ```
 
 ### Multiple apps, one terminal session
@@ -154,8 +154,8 @@ fastlane_cli   # dir form — looks for cli_profile.yaml then fastlane/cli_profi
 Switch active app by re-exporting:
 
 ```sh
-export FASTLANE_CLI_PROFILE=/repo/apps/aiNote
-fastlane_cli run ios_test_flight        # aiNote
+export FASTLANE_CLI_PROFILE=/repo/apps/myapp
+fastlane_cli run ios_test_flight        # myapp
 
 export FASTLANE_CLI_PROFILE=/repo/apps/other
 fastlane_cli run android_internal_testing  # other
@@ -165,7 +165,7 @@ fastlane_cli run android_internal_testing  # other
 
 ```yaml
 # GitHub Actions snippet
-- run: fastlane_cli run ios_internal_bump_deploy --profile ./apps/aiNote/fastlane/cli_profile.yaml
+- run: fastlane_cli run ios_internal_bump_deploy --profile ./apps/myapp/fastlane/profile.yaml
   working-directory: ${{ github.workspace }}
 ```
 
@@ -192,7 +192,7 @@ folder, and `FASTLANE_APP_ROOT` should match their Flutter project root.
   different concern. Use `fastlane_path` for app data.
 - Set an absolute `root_path` unless the user explicitly wants
   machine-pinned behaviour — relative is portable.
-- Edit fastlane_cli's own [`fastlane/cli_profile.base.yaml`](../../fastlane/cli_profile.base.yaml)
+- Edit fastlane_cli's own [`fastlane/profile.base.yaml`](../../fastlane/profile.base.yaml)
   for an app-specific layout — that file ships to every consumer.
 - Recommend `--profile` flag on every invocation when the user could fix
   layout once and let walk-up handle the rest.

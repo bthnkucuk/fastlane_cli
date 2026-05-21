@@ -31,7 +31,7 @@ class FastlaneCliRunner extends CommandRunner<int> {
     // Mirror the legacy top-level flags so `fastlane_cli --profile <p>` still
     // works without a subcommand.
     argParser
-      ..addOption('profile', abbr: 'p', help: 'Path to cli_profile.yaml')
+      ..addOption('profile', abbr: 'p', help: 'Path to profile.yaml')
       ..addOption(
         'lang',
         allowed: const <String>['tr', 'en'],
