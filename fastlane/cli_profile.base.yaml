@@ -70,6 +70,7 @@ categories:
       - ios_deploy_testflight
       - ios_app_store
       - ios_deploy_appstore
+      - ios_promote_to_app_store
       - ios_update_metadata
       - ios_download_metadata
       - ios_download_screenshots
@@ -362,6 +363,20 @@ actions:
       options:
         skip_metadata: "false"
         skip_screenshots: "false"
+
+  - id: ios_promote_to_app_store
+    category: ios
+    title:
+      tr: iOS TestFlight build'ini App Store'a gönder
+      en: Promote a TestFlight build to App Store
+    description:
+      tr: Yüklü bir TestFlight build'ini listeden seçip App Store incelemesine gönderir — yeniden binary yüklemez
+      en: Picks an already-uploaded TestFlight build from a list and submits it for App Store review — no re-upload
+    requires_confirmation: true
+    command:
+      type: fastlane
+      platform: ios
+      lane: promote_to_app_store
 
   - id: ios_update_metadata
     category: ios
