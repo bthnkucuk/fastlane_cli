@@ -35,7 +35,7 @@ A `FASTLANE_SESSION` cookie also works but expires; API key is preferred.
 
 ### 2. Bundle identifier
 
-Either declared in `app.ios.app_identifier` of `cli_profile.yaml`, or via
+Either declared in `app.ios.app_identifier` of `profile.yaml`, or via
 env:
 
 ```sh

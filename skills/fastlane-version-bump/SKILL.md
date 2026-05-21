@@ -14,7 +14,7 @@ local, no writes) and bump-and-deploy flows (mutate pubspec + ship a build).
 Run `fastlane_cli list --json --profile <path>` and confirm which of the
 following base actions are present in the user's profile (a per-app profile
 may rename, replace, or remove any of them). The ids below are the ones
-shipped in `fastlane/cli_profile.base.yaml`.
+shipped in `fastlane/profile.base.yaml`.
 
 ## Read-only: "what version are we on?"
 

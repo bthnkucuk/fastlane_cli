@@ -92,7 +92,7 @@ the same flag triggers Android NDK symbol upload (see the Android section).
 
 Because base actions merge by `id` (full-replace), enabling this in a
 consumer profile means copying each action's full block from
-`fastlane/cli_profile.base.yaml` and adding the `upload_symbols` option:
+`fastlane/profile.base.yaml` and adding the `upload_symbols` option:
 
 ```yaml
 actions:
@@ -118,7 +118,7 @@ actions:
 For uploading symbols against an already-archived build without re-uploading
 the IPA (e.g. after fixing missing env vars). Defined in
 [`fastlane/ios/Fastfile`](../../fastlane/ios/Fastfile) but **not surfaced as a
-base action** — consumers must declare one in their `cli_profile.yaml`:
+base action** — consumers must declare one in their `profile.yaml`:
 
 ```yaml
 actions:
@@ -169,7 +169,7 @@ helper `FastlaneCliConfig.crashlytics_symbol_task(flavor:, build_type:)`:
 
 | Flavor (`resolve_flavor`) | Task name                                  |
 | ------------------------- | ------------------------------------------ |
-| `narravo`                 | `uploadCrashlyticsSymbolFileNarravoRelease` |
+| `staging`                 | `uploadCrashlyticsSymbolFileStagingRelease` |
 | `freeStaging`             | `uploadCrashlyticsSymbolFileFreeStagingRelease` |
 | _(none)_                  | `uploadCrashlyticsSymbolFileRelease`       |
 

@@ -17,7 +17,7 @@ itself — single source of truth, no duplication.
 
 | Skill                                                                  | One-liner                                                                                              |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| [`fastlane-cli-setup`](fastlane-cli-setup/SKILL.md)                    | Scaffold a fresh `cli_profile.yaml` and required credential env vars for a Flutter project.            |
+| [`fastlane-cli-setup`](fastlane-cli-setup/SKILL.md)                    | Scaffold a fresh `profile.yaml` and required credential env vars for a Flutter project.            |
 | [`fastlane-cli-run`](fastlane-cli-run/SKILL.md)                        | Translate a natural-language intent into `fastlane_cli run <action-id>` via runtime action discovery.  |
 | [`fastlane-version-bump`](fastlane-version-bump/SKILL.md)              | Inspect or bump pubspec `version: X.Y.Z+N` and reconcile it with the stores.                            |
 | [`fastlane-cli-version-bump`](fastlane-cli-version-bump/SKILL.md)      | Bump fastlane_cli's *own* `pubspec.yaml` + formula version per conventional-commits rules when shipping a PR. |
@@ -38,7 +38,7 @@ itself — single source of truth, no duplication.
   `Triggers on: <comma-separated keywords>`. Triggers should not ambiguously
   overlap across skills (e.g. "testflight" fires only `fastlane-testflight`).
 - Body content references real action ids from
-  [`fastlane/cli_profile.base.yaml`](../fastlane/cli_profile.base.yaml) and
+  [`fastlane/profile.base.yaml`](../fastlane/profile.base.yaml) and
   real lane names from
   [`fastlane/ios/Fastfile`](../fastlane/ios/Fastfile) /
   [`fastlane/android/Fastfile`](../fastlane/android/Fastfile) /

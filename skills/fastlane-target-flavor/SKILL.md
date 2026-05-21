@@ -6,7 +6,7 @@ description: Resolve the Flutter entry-point file (`--target lib/main_*.dart`) a
 # Fastlane target & flavor resolution
 
 Flutter apps consumed by this CLI often have multiple entry points
-(`lib/main_narravo.dart`, `lib/main_tuspeech.dart`, …) and multiple flavors.
+(`lib/main_staging.dart`, `lib/main_dev.dart`, …) and multiple flavors.
 The fastlane lanes here resolve both via a single helper —
 `FastlaneCliConfig.flutter_target` in
 [fastlane/common_helpers.rb](../../fastlane/common_helpers.rb) — and an accompanying
@@ -21,18 +21,18 @@ has consistent overrides across every lane.
 1. **Per-invocation option** — `target:` or `flutter_target:` on the fastlane
    command line. Highest precedence; for one-off runs.
    ```sh
-   fastlane internal_test platform:ios target:lib/main_narravo.dart
+   fastlane internal_test platform:ios target:lib/main_staging.dart
    ```
 2. **Env var** — `FASTLANE_FLUTTER_TARGET` or `FLUTTER_TARGET`. Survives the
    shell session; can live in the app's `.env`.
    ```sh
-   export FASTLANE_FLUTTER_TARGET=lib/main_narravo.dart
+   export FASTLANE_FLUTTER_TARGET=lib/main_staging.dart
    ```
 3. **Flavor convention** — if a flavor is resolved AND
    `lib/main_<flavor>.dart` exists under the app root, that file is used.
    ```sh
-   fastlane internal_test platform:ios flavor:narravo
-   # → adds both --flavor narravo and --target lib/main_narravo.dart
+   fastlane internal_test platform:ios flavor:staging
+   # → adds both --flavor staging and --target lib/main_staging.dart
    ```
 4. **`nil`** — the helper returns nil; the lane omits `--target` and Flutter
    falls back to `lib/main.dart`. This is the source of
@@ -58,18 +58,18 @@ Recommend in this order, falling back if a prerequisite is missing:
 1. **Flavor convention** (preferred) — only if the app actually uses a
    `--flavor` *and* its entry file matches the `lib/main_<flavor>.dart`
    convention. One knob, two effects.
-2. **`default_options` in the consumer's `cli_profile.yaml`** — the cleanest
+2. **`default_options` in the consumer's `profile.yaml`** — the cleanest
    profile-level knob when the entry should always be the same for that app
    (e.g. a dedicated per-flavor profile). One top-level map applies to
    **every** lane — no need to re-declare each base action:
    ```yaml
    app:
-     name: narravo
+     name: staging
      root_path: ..
 
    default_options:
-     flavor: narravo
-     target: lib/main_narravo.dart
+     flavor: staging
+     target: lib/main_staging.dart
    ```
    `default_options` is a sibling of `app` / `actions` / `categories` /
    `shortcuts`. It is folded underneath every `fastlane`-action's

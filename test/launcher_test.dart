@@ -27,7 +27,7 @@ void main() {
         profileLoader: const _ThrowingProfileLoader(),
       );
       expect(
-        await launcher.run(<String>['--profile', '/any/cli_profile.yaml']),
+        await launcher.run(<String>['--profile', '/any/profile.yaml']),
         64,
       );
     });
@@ -48,15 +48,15 @@ void main() {
       });
 
       test(
-        'no-arg + cwd containing fastlane/cli_profile.yaml resolves via walk-up',
+        'no-arg + cwd containing fastlane/profile.yaml resolves via walk-up',
         () async {
           // Layout:
           //   <tempDir>/pubspec.yaml
-          //   <tempDir>/fastlane/cli_profile.yaml
+          //   <tempDir>/fastlane/profile.yaml
           File(p.join(tempDir.path, 'pubspec.yaml')).writeAsStringSync('name: x');
           final fastlaneDir = Directory(p.join(tempDir.path, 'fastlane'))
             ..createSync();
-          final profilePath = p.join(fastlaneDir.path, 'cli_profile.yaml');
+          final profilePath = p.join(fastlaneDir.path, 'profile.yaml');
           File(profilePath).writeAsStringSync('app:');
 
           final capture = _CaptureProfileLoader();

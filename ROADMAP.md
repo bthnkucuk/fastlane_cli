@@ -1,7 +1,7 @@
 # Roadmap — from extracted package to brew-installable CLI + skills surface
 
 Goal: any Flutter project can `brew install <owner>/fastlane_cli/fastlane_cli`,
-drop a `cli_profile.yaml`, and get:
+drop a `profile.yaml`, and get:
 
 1. A TUI for interactive lane discovery (existing behavior).
 2. Terminal subcommands for every lane (CI-friendly, scriptable, completion-aware).
@@ -32,7 +32,7 @@ Owner: one agent end-to-end; A1 → A2 sequential.
 ### A1. Runner asset auto-resolve
 **Depends on**: nothing.
 
-Replace the mandatory `fastlane_runner_path:` field in `cli_profile.yaml`
+Replace the mandatory `fastlane_runner_path:` field in `profile.yaml`
 with an auto-resolver. Resolution order:
 
 1. Profile override (`fastlane_runner_path`) if set.
@@ -63,12 +63,12 @@ Subcommands:
 - `doctor` → environment check (Ruby/fastlane/bundle/env). **Implementation
   in Track B**; A2 just wires the shell.
 - `init [--app-name <n>] [--platform ios|android|both]` → scaffold
-  `cli_profile.yaml` in cwd.
+  `profile.yaml` in cwd.
 - `skills install [--global|--project] [--force] [--dry-run]` →
   **implementation in Track C**; A2 wires the shell.
 - `completion <bash|zsh|fish>` → emit shell completion using profile actions.
 
-Profile resolution: `--profile` → `./cli_profile.yaml` → `$FASTLANE_CLI_PROFILE`
+Profile resolution: `--profile` → `./profile.yaml` → `$FASTLANE_CLI_PROFILE`
 → error with remediation message.
 
 **Files**: `bin/fastlane_cli.dart`, new `lib/src/cli/` dir for command classes,
@@ -139,7 +139,7 @@ is a symlink to this tree so the same skills auto-load when Claude Code runs
 inside the fastlane_cli repo itself.
 
 Initial skill set:
-- `fastlane-cli-setup` — scaffold `cli_profile.yaml` + env from a Flutter project.
+- `fastlane-cli-setup` — scaffold `profile.yaml` + env from a Flutter project.
 - `fastlane-cli-run` — natural language ↔ `fastlane_cli run …`. **MUST** call
   `fastlane_cli list --json` at runtime, not hardcode action IDs.
 - `fastlane-version-bump` — version status + bump flows.
@@ -163,7 +163,7 @@ overlap.
 Cross-check each skill against actual lanes in `fastlane/ios/Fastfile` +
 `fastlane/android/Fastfile`. Ensure skills:
 - Quote only lane names / action IDs that actually exist.
-- Reference `cli_profile.base.yaml` action IDs verbatim.
+- Reference `profile.base.yaml` action IDs verbatim.
 - Discover available actions via `fastlane_cli list --json` at runtime
   rather than hardcoding them.
 
@@ -285,11 +285,11 @@ subcommand + skills sections need A2 + C1 final.
 ### F1. README
 - 30-second pitch + animated screencast (asciinema).
 - Install (brew + dev-from-source).
-- Quickstart: minimal `cli_profile.yaml` for a fresh Flutter app.
+- Quickstart: minimal `profile.yaml` for a fresh Flutter app.
 - Subcommand reference (Track A2 outputs).
 - Skills reference (Track C outputs).
-- Schema reference for `cli_profile.yaml` (merge rules from
-  `cli_profile.base.yaml`).
+- Schema reference for `profile.yaml` (merge rules from
+  `profile.base.yaml`).
 - Credentials matrix (env vars per lane).
 - Troubleshooting.
 

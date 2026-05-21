@@ -97,7 +97,9 @@ platform :ios do
     FastlaneCliConfig.with_clean_subprocess_env do
       sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} clean", options))
       sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} pub get", options))
-      sh(FastlaneCliConfig.in_app_root("#{flutter_cmd} build ios --release --no-codesign", options))
+      build_parts = ["#{flutter_cmd} build ios --release --no-codesign"]
+      build_parts.concat(FastlaneCliConfig.flutter_build_flags(options, artifact: :ipa))
+      sh(FastlaneCliConfig.in_app_root(build_parts.join(" "), options))
     end
 
     provisioning_profile = options[:provisioning_profile_name] || ENV["IOS_PROVISIONING_PROFILE_NAME"]

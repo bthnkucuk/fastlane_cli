@@ -2,20 +2,25 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-/// Resolves the active `cli_profile.yaml` path using a fixed precedence:
+/// Resolves the active `profile.yaml` path using a fixed precedence:
 ///
 /// 1. Explicit `--profile <path>` flag (passed in via [explicit]). May be:
-///    - a path to a `cli_profile.yaml` file (legacy behaviour), or
-///    - a path to a directory — we look inside it for `cli_profile.yaml`
-///      and then `fastlane/cli_profile.yaml`. First hit wins.
+///    - a path to a `profile.yaml` file (legacy behaviour), or
+///    - a path to a directory — we look inside it for `profile.yaml`
+///      and then `fastlane/profile.yaml`. First hit wins.
 /// 2. `$FASTLANE_CLI_PROFILE` environment variable (same file-or-dir
 ///    semantics as #1).
 /// 3. Walk-up app discovery: from the current working directory, walk
 ///    up at most 8 levels looking for the first dir containing **both**
-///    `pubspec.yaml` and `fastlane/cli_profile.yaml`. If found, use that
-///    `fastlane/cli_profile.yaml`.
-/// 4. `./cli_profile.yaml` in the current working directory (legacy
+///    `pubspec.yaml` and `fastlane/profile.yaml`. If found, use that
+///    `fastlane/profile.yaml`.
+/// 4. `./profile.yaml` in the current working directory (legacy
 ///    final fallback).
+///
+/// At every step the legacy file name `cli_profile.yaml` is accepted as a
+/// **deprecated** fallback: when `profile.yaml` is absent but the legacy file
+/// exists, the legacy file is used and a one-line deprecation warning is
+/// emitted on stderr exactly once per process.
 ///
 /// If none resolve to an existing file, throws [ProfileResolutionException]
 /// with a remediation message listing all four sources.
@@ -35,6 +40,13 @@ class ProfileResolver {
        _discoverySinkOverride = discoverySink,
        _walkUpMaxLevels = walkUpMaxLevels;
 
+  /// Primary per-app profile file name.
+  static const String profileFileName = 'profile.yaml';
+
+  /// Deprecated legacy per-app profile file name. Still resolved as a
+  /// fallback, but triggers a one-time stderr deprecation warning.
+  static const String legacyProfileFileName = 'cli_profile.yaml';
+
   final Map<String, String>? _envOverride;
   final Directory? _cwdOverride;
   final StringSink? _discoverySinkOverride;
@@ -44,14 +56,18 @@ class ProfileResolver {
   Directory get _cwd => _cwdOverride ?? Directory.current;
   StringSink get _discoverySink => _discoverySinkOverride ?? stderr;
 
-  /// Returns an absolute path to the resolved `cli_profile.yaml`.
+  /// Returns an absolute path to the resolved `profile.yaml` (or the legacy
+  /// `cli_profile.yaml`).
   String resolve({String? explicit}) {
     final attempts = <String>[];
+    // Tracks whether the legacy-name deprecation warning has already fired,
+    // so it is printed at most once per `resolve` call.
+    final deprecationState = _DeprecationState();
 
     final fromFlag = _normalize(explicit);
     if (fromFlag != null) {
       attempts.add('--profile $fromFlag');
-      final resolved = _resolvePathOrDir(fromFlag);
+      final resolved = _resolvePathOrDir(fromFlag, deprecationState);
       if (resolved != null) {
         if (resolved != fromFlag) {
           _announceDiscovery(resolved);
@@ -66,7 +82,7 @@ class ProfileResolver {
     if (fromEnv != null) {
       attempts.add(r'$FASTLANE_CLI_PROFILE='
           '$fromEnv');
-      final resolved = _resolvePathOrDir(fromEnv);
+      final resolved = _resolvePathOrDir(fromEnv, deprecationState);
       if (resolved != null) {
         if (resolved != fromEnv) {
           _announceDiscovery(resolved);
@@ -76,8 +92,9 @@ class ProfileResolver {
     }
 
     // Walk-up discovery: find the nearest Flutter app root by climbing the
-    // cwd looking for `pubspec.yaml` + `fastlane/cli_profile.yaml`.
-    final walkedUp = _walkUpForAppRoot();
+    // cwd looking for `pubspec.yaml` + `fastlane/profile.yaml` (or the legacy
+    // `fastlane/cli_profile.yaml`).
+    final walkedUp = _walkUpForAppRoot(deprecationState);
     if (walkedUp != null) {
       attempts.add('walk-up app discovery: $walkedUp');
       _announceDiscovery(walkedUp);
@@ -88,50 +105,77 @@ class ProfileResolver {
       );
     }
 
-    final fromCwd = p.normalize(p.join(_cwd.path, 'cli_profile.yaml'));
-    attempts.add('./cli_profile.yaml ($fromCwd)');
+    final fromCwd = p.normalize(p.join(_cwd.path, profileFileName));
+    attempts.add('./$profileFileName ($fromCwd)');
     if (File(fromCwd).existsSync()) {
       return fromCwd;
+    }
+    final legacyFromCwd = p.normalize(p.join(_cwd.path, legacyProfileFileName));
+    if (File(legacyFromCwd).existsSync()) {
+      _warnLegacy(deprecationState);
+      return legacyFromCwd;
     }
 
     throw ProfileResolutionException(attempts: attempts);
   }
 
   /// Accepts either a file path or a directory path. For a directory, looks
-  /// for `cli_profile.yaml` then `fastlane/cli_profile.yaml`. Returns the
-  /// absolute file path on success, or `null` if nothing matched.
-  String? _resolvePathOrDir(String absolutePath) {
+  /// for `profile.yaml` then `fastlane/profile.yaml`, falling back to the
+  /// legacy `cli_profile.yaml` names at each level. Returns the absolute file
+  /// path on success, or `null` if nothing matched.
+  String? _resolvePathOrDir(String absolutePath, _DeprecationState state) {
     final file = File(absolutePath);
     if (file.existsSync()) {
+      if (p.basename(absolutePath) == legacyProfileFileName) {
+        _warnLegacy(state);
+      }
       return absolutePath;
     }
     final dir = Directory(absolutePath);
     if (!dir.existsSync()) {
       return null;
     }
-    for (final candidate in <String>[
-      p.join(absolutePath, 'cli_profile.yaml'),
-      p.join(absolutePath, 'fastlane', 'cli_profile.yaml'),
+    // Each candidate directory is checked for `profile.yaml` first, then the
+    // legacy `cli_profile.yaml`, so a co-located primary file always wins.
+    for (final baseDir in <String>[
+      absolutePath,
+      p.join(absolutePath, 'fastlane'),
     ]) {
-      if (File(candidate).existsSync()) {
-        return p.normalize(candidate);
+      final primary = p.join(baseDir, profileFileName);
+      if (File(primary).existsSync()) {
+        return p.normalize(primary);
+      }
+      final legacy = p.join(baseDir, legacyProfileFileName);
+      if (File(legacy).existsSync()) {
+        _warnLegacy(state);
+        return p.normalize(legacy);
       }
     }
     return null;
   }
 
   /// Walks up from cwd looking for a dir containing both `pubspec.yaml`
-  /// and `fastlane/cli_profile.yaml`. Returns the path of the discovered
-  /// `fastlane/cli_profile.yaml` (absolute, normalised), or `null`.
-  String? _walkUpForAppRoot() {
+  /// and `fastlane/profile.yaml` (or the legacy `fastlane/cli_profile.yaml`).
+  /// Returns the path of the discovered profile file (absolute, normalised),
+  /// or `null`.
+  String? _walkUpForAppRoot(_DeprecationState state) {
     var current = Directory(p.absolute(_cwd.path));
     for (var level = 0; level <= _walkUpMaxLevels; level++) {
       final pubspec = File(p.join(current.path, 'pubspec.yaml'));
-      final profile = File(
-        p.join(current.path, 'fastlane', 'cli_profile.yaml'),
-      );
-      if (pubspec.existsSync() && profile.existsSync()) {
-        return p.normalize(profile.path);
+      if (pubspec.existsSync()) {
+        final profile = File(
+          p.join(current.path, 'fastlane', profileFileName),
+        );
+        if (profile.existsSync()) {
+          return p.normalize(profile.path);
+        }
+        final legacyProfile = File(
+          p.join(current.path, 'fastlane', legacyProfileFileName),
+        );
+        if (legacyProfile.existsSync()) {
+          _warnLegacy(state);
+          return p.normalize(legacyProfile.path);
+        }
       }
       final parent = current.parent;
       if (parent.path == current.path) {
@@ -140,6 +184,16 @@ class ProfileResolver {
       current = parent;
     }
     return null;
+  }
+
+  void _warnLegacy(_DeprecationState state) {
+    if (state.warned) {
+      return;
+    }
+    state.warned = true;
+    _discoverySink.writeln(
+      '⚠️  cli_profile.yaml is deprecated — rename it to profile.yaml',
+    );
   }
 
   void _announceDiscovery(String path) {
@@ -157,6 +211,11 @@ class ProfileResolver {
   }
 }
 
+/// Mutable one-shot flag for the legacy-name deprecation warning.
+class _DeprecationState {
+  bool warned = false;
+}
+
 class ProfileResolutionException implements Exception {
   ProfileResolutionException({required this.attempts});
 
@@ -165,7 +224,7 @@ class ProfileResolutionException implements Exception {
   @override
   String toString() {
     final buf = StringBuffer()
-      ..writeln('Could not locate cli_profile.yaml.')
+      ..writeln('Could not locate profile.yaml.')
       ..writeln('Tried (in order):');
     for (final attempt in attempts) {
       buf.writeln('  • $attempt');
@@ -176,8 +235,8 @@ class ProfileResolutionException implements Exception {
       r'  2. Export $FASTLANE_CLI_PROFILE to an absolute path.'
       '\n'
       '  3. Run from inside a Flutter app whose root contains pubspec.yaml\n'
-      '     and fastlane/cli_profile.yaml (walked up to 8 levels).\n'
-      '  4. Run from a directory containing cli_profile.yaml.',
+      '     and fastlane/profile.yaml (walked up to 8 levels).\n'
+      '  4. Run from a directory containing profile.yaml.',
     );
     return buf.toString();
   }

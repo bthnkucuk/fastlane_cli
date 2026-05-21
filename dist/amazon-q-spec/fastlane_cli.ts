@@ -10,24 +10,24 @@
 // Notes on philosophy:
 // - We never enumerate action ids statically. The `run` positional argument
 //   uses a generator that shells out to `fastlane_cli list --json` so the
-//   spec stays in sync with whatever actions the user's `cli_profile.yaml`
+//   spec stays in sync with whatever actions the user's `profile.yaml`
 //   defines (including custom ones the consumer adds). Same idea for the
 //   `--category` filter on `list`.
 // - Every `--profile` flag uses `template: "filepaths"` so the dropdown
-//   surfaces yaml files (`cli_profile.yaml` in particular).
+//   surfaces yaml files (`profile.yaml` in particular).
 // - Descriptions are kept short (<= 60 chars where reasonable) so Kiro
 //   renders them as a single-line tooltip.
 
 const profileArg: Fig.Arg = {
   name: "profile",
-  description: "Path to cli_profile.yaml",
+  description: "Path to profile.yaml",
   template: "filepaths",
   isOptional: true,
 };
 
 const profileOption: Fig.Option = {
   name: ["-p", "--profile"],
-  description: "Path to cli_profile.yaml",
+  description: "Path to profile.yaml",
   args: profileArg,
 };
 
@@ -126,7 +126,7 @@ const completionSpec: Fig.Spec = {
       description: "Run a profile action by id non-interactively",
       args: {
         name: "action-id",
-        description: "Action id from the active cli_profile.yaml",
+        description: "Action id from the active profile.yaml",
         generators: actionIdGenerator,
       },
       options: [
@@ -165,7 +165,7 @@ const completionSpec: Fig.Spec = {
     {
       name: "init",
       description:
-        "Scaffold a minimal cli_profile.yaml in the current directory",
+        "Scaffold a minimal profile.yaml in the current directory",
       options: [
         {
           name: "--app-name",
@@ -190,7 +190,7 @@ const completionSpec: Fig.Spec = {
         },
         {
           name: "--force",
-          description: "Overwrite an existing cli_profile.yaml",
+          description: "Overwrite an existing profile.yaml",
         },
       ],
     },

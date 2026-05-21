@@ -121,7 +121,7 @@ module FastlaneCliConfig
   # `uploadCrashlyticsSymbolFile<Flavor><BuildType>`.
   #
   # Gradle variant casing only capitalises the FIRST letter of each segment
-  # (`narravo` → `Narravo`, `release` → `Release`) — it does NOT title-case
+  # (`staging` → `Staging`, `release` → `Release`) — it does NOT title-case
   # multi-word names, so a flavor like `freeStaging` stays `FreeStaging`.
   # When no flavor resolves the task collapses to
   # `uploadCrashlyticsSymbolFile<BuildType>`.
@@ -131,6 +131,33 @@ module FastlaneCliConfig
     flavor_part = blank?(flavor) ? "" : capitalize_variant_segment(flavor)
     type_part = capitalize_variant_segment(blank?(build_type) ? "release" : build_type)
     "uploadCrashlyticsSymbolFile#{flavor_part}#{type_part}"
+  end
+
+  # Extra `flutter build` flags driven by profile options.
+  #   obfuscate (bool, default false) → "--obfuscate --split-debug-info=<dir>"
+  #     applies to ALL artifacts (apk, appbundle, ipa). The dir comes from the
+  #     `split_debug_info` option, default "build/symbols".
+  #   split_per_abi (bool, default false) → "--split-per-abi"
+  #     applies ONLY when artifact == :apk (an AAB splits per-ABI natively;
+  #     ipa is irrelevant). Silently ignored for :appbundle / :ipa.
+  # Returns an array of flag strings (possibly empty).
+  #
+  # Pure function — no ENV / filesystem access — so it is unit-testable.
+  def flutter_build_flags(options = {}, artifact:)
+    flags = []
+
+    if bool_option(options, :obfuscate, default: false)
+      split_debug_info = option(options, :split_debug_info)
+      split_debug_info = "build/symbols" if blank?(split_debug_info)
+      flags << "--obfuscate"
+      flags << "--split-debug-info=#{split_debug_info}"
+    end
+
+    if artifact == :apk && bool_option(options, :split_per_abi, default: false)
+      flags << "--split-per-abi"
+    end
+
+    flags
   end
 
   # Capitalise only the first character of a Gradle variant segment, leaving

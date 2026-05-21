@@ -32,7 +32,7 @@ class ProfileLoader {
     final profileDirectory = profileFile.parent.absolute.path;
 
     // Resolve the runner directory once, before merging, so that the bundled
-    // `cli_profile.base.yaml` can be located even when the profile omits
+    // `profile.base.yaml` can be located even when the profile omits
     // `fastlane_runner_path`.
     final runnerOverride = _readRunnerOverride(appRoot, profileDirectory);
     final resolvedRunnerDir = await _runnerResolver.resolve(
@@ -126,7 +126,7 @@ class ProfileLoader {
     Map<String, Object?> appRoot,
     String resolvedRunnerDir,
   ) {
-    final baseFile = File(p.join(resolvedRunnerDir, 'cli_profile.base.yaml'));
+    final baseFile = File(p.join(resolvedRunnerDir, 'profile.base.yaml'));
     if (!baseFile.existsSync()) {
       return appRoot;
     }

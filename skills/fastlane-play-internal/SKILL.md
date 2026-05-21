@@ -26,7 +26,7 @@ This is read by `FastlaneCliConfig.absolute_json_key` and passed to every
 
 ### 2. Package name
 
-Either declared in `app.android.package_name` of `cli_profile.yaml`, or via
+Either declared in `app.android.package_name` of `profile.yaml`, or via
 env:
 
 ```sh
@@ -106,7 +106,7 @@ fastlane_cli run android_internal_bump_deploy --profile <path> --dry-run
 ## Track selection
 
 The base `android_internal_testing` action targets the `internal` track. To
-override (e.g. `alpha` or `beta`), the per-app `cli_profile.yaml` should
+override (e.g. `alpha` or `beta`), the per-app `profile.yaml` should
 declare a replacement entry by `id` with `command.options.track: alpha` (or
 `beta`). The Play Console treats `internal`, `alpha`, `beta`, `production`
 as distinct tracks with separate release ladders.

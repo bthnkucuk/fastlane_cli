@@ -30,7 +30,7 @@ class DoctorCommand extends Command<int> {
     argParser.addOption(
       'profile',
       abbr: 'p',
-      help: 'Path to cli_profile.yaml',
+      help: 'Path to profile.yaml',
     );
   }
 

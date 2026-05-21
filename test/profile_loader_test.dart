@@ -41,7 +41,7 @@ void main() {
       final appRoot = Directory('${temp.path}/app')
         ..createSync(recursive: true);
       final fastlaneDir = _seedFastlaneDir('${appRoot.path}/fastlane');
-      final profileFile = File('${fastlaneDir.path}/cli_profile.yaml')
+      final profileFile = File('${fastlaneDir.path}/profile.yaml')
         ..writeAsStringSync(_validProfileYaml);
 
       final loader = ProfileLoader(
@@ -71,7 +71,7 @@ void main() {
         runnerResolver: _FakeRunnerResolver('/tmp'),
       );
       expect(
-        () => loader.load('/nonexistent/path/cli_profile.yaml'),
+        () => loader.load('/nonexistent/path/profile.yaml'),
         throwsA(
           predicate<FormatException>(
             (e) => e.message.contains('Profile not found'),
@@ -86,7 +86,7 @@ void main() {
       );
       addTearDown(() => temp.delete(recursive: true));
 
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync('just a string');
 
       final loader = ProfileLoader(
@@ -109,7 +109,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync(_shortcutInvalidYaml);
 
       final loader = ProfileLoader(
@@ -125,7 +125,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync(_categoriesNotListYaml);
 
       final loader = ProfileLoader(
@@ -141,37 +141,37 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      File('${fastlaneDir.path}/cli_profile.base.yaml').writeAsStringSync(
+      File('${fastlaneDir.path}/profile.base.yaml').writeAsStringSync(
         'not_a_map',
       );
-      File('${temp.path}/cli_profile.yaml').writeAsStringSync(
+      File('${temp.path}/profile.yaml').writeAsStringSync(
         _overlayOnlyProfileYaml,
       );
 
       final loader = ProfileLoader(
         runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
       );
-      final profile = await loader.load('${temp.path}/cli_profile.yaml');
+      final profile = await loader.load('${temp.path}/profile.yaml');
 
       expect(profile.actionsById.containsKey('only_here'), isTrue);
     });
 
-    test('merges cli_profile.base.yaml over actions and categories', () async {
+    test('merges profile.base.yaml over actions and categories', () async {
       final temp = await Directory.systemTemp.createTemp(
         'fastlane_cli_profile_merge',
       );
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      File('${fastlaneDir.path}/cli_profile.base.yaml').writeAsStringSync(
+      File('${fastlaneDir.path}/profile.base.yaml').writeAsStringSync(
         _baseProfileYaml,
       );
-      File('${temp.path}/cli_profile.yaml').writeAsStringSync(_overlayMergeYaml);
+      File('${temp.path}/profile.yaml').writeAsStringSync(_overlayMergeYaml);
 
       final loader = ProfileLoader(
         runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
       );
-      final profile = await loader.load('${temp.path}/cli_profile.yaml');
+      final profile = await loader.load('${temp.path}/profile.yaml');
 
       expect(profile.appName, 'OverlayApp');
       final action = profile.actionsById['shared_action']!;
@@ -185,7 +185,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync(_plainTitleCategoryYaml);
 
       final loader = ProfileLoader(
@@ -204,7 +204,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync(_stringBoolYaml);
 
       final loader = ProfileLoader(
@@ -227,7 +227,7 @@ void main() {
         addTearDown(() => temp.delete(recursive: true));
 
         final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-        final profileFile = File('${temp.path}/cli_profile.yaml')
+        final profileFile = File('${temp.path}/profile.yaml')
           ..writeAsStringSync(_defaultOptionsYaml);
 
         final loader = ProfileLoader(
@@ -237,13 +237,13 @@ void main() {
 
         // Plain action with no options of its own: defaults injected verbatim.
         final plain = profile.actionsById['plain']!;
-        expect(plain.command.options['flavor'], 'narravo');
-        expect(plain.command.options['target'], 'lib/main_narravo.dart');
+        expect(plain.command.options['flavor'], 'staging');
+        expect(plain.command.options['target'], 'lib/main_staging.dart');
 
         // Action with its own option: default merged in, own option wins.
         final withOwn = profile.actionsById['with_own']!;
         expect(withOwn.command.options['flavor'], 'override');
-        expect(withOwn.command.options['target'], 'lib/main_narravo.dart');
+        expect(withOwn.command.options['target'], 'lib/main_staging.dart');
         expect(withOwn.command.options['skip_bump'], 'true');
       },
     );
@@ -256,7 +256,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync(_defaultOptionsWithFlutterYaml);
 
       final loader = ProfileLoader(
@@ -269,7 +269,7 @@ void main() {
       expect(flutterAction.command.options, isEmpty);
       // fastlane action in the same profile still gets the defaults.
       final fastlaneAction = profile.actionsById['ship']!;
-      expect(fastlaneAction.command.options['flavor'], 'narravo');
+      expect(fastlaneAction.command.options['flavor'], 'staging');
     });
 
     test('absent default_options behaves identically to today', () async {
@@ -279,7 +279,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${fastlaneDir.path}/cli_profile.yaml')
+      final profileFile = File('${fastlaneDir.path}/profile.yaml')
         ..writeAsStringSync(_validProfileYaml);
 
       final loader = ProfileLoader(
@@ -301,7 +301,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync(_defaultOptionsNotMapYaml);
 
       final loader = ProfileLoader(
@@ -324,7 +324,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync(_defaultOptionsNestedYaml);
 
       final loader = ProfileLoader(
@@ -345,7 +345,7 @@ void main() {
         addTearDown(() => temp.delete(recursive: true));
 
         final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-        final profileFile = File('${fastlaneDir.path}/cli_profile.yaml')
+        final profileFile = File('${fastlaneDir.path}/profile.yaml')
           ..writeAsStringSync(_defaultOptionsYaml);
 
         final loader = ProfileLoader(
@@ -360,8 +360,8 @@ void main() {
         );
 
         expect(request.executable, 'fastlane');
-        expect(request.arguments, contains('flavor:narravo'));
-        expect(request.arguments, contains('target:lib/main_narravo.dart'));
+        expect(request.arguments, contains('flavor:staging'));
+        expect(request.arguments, contains('target:lib/main_staging.dart'));
       },
     );
 
@@ -373,23 +373,23 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      File('${fastlaneDir.path}/cli_profile.base.yaml').writeAsStringSync(
+      File('${fastlaneDir.path}/profile.base.yaml').writeAsStringSync(
         _baseWithDefaultOptionsYaml,
       );
-      File('${temp.path}/cli_profile.yaml').writeAsStringSync(
+      File('${temp.path}/profile.yaml').writeAsStringSync(
         _overlayWithDefaultOptionsYaml,
       );
 
       final loader = ProfileLoader(
         runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
       );
-      final profile = await loader.load('${temp.path}/cli_profile.yaml');
+      final profile = await loader.load('${temp.path}/profile.yaml');
 
       final action = profile.actionsById['shared_action']!;
       // base-only key survives, app key overrides, new app key appended.
       expect(action.command.options['region'], 'eu');
-      expect(action.command.options['flavor'], 'narravo');
-      expect(action.command.options['target'], 'lib/main_narravo.dart');
+      expect(action.command.options['flavor'], 'staging');
+      expect(action.command.options['target'], 'lib/main_staging.dart');
     });
 
     test('throws when category mapping is invalid', () async {
@@ -399,7 +399,7 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
 
       final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
-      final profileFile = File('${temp.path}/cli_profile.yaml')
+      final profileFile = File('${temp.path}/profile.yaml')
         ..writeAsStringSync(_invalidProfileYaml);
 
       final loader = ProfileLoader(
@@ -584,8 +584,8 @@ app:
   name: App
   root_path: .
 default_options:
-  flavor: narravo
-  target: lib/main_narravo.dart
+  flavor: staging
+  target: lib/main_staging.dart
 categories:
   - id: c
     title:
@@ -621,7 +621,7 @@ app:
   name: App
   root_path: .
 default_options:
-  flavor: narravo
+  flavor: staging
 categories:
   - id: c
     title:
@@ -727,8 +727,8 @@ app:
   name: OverlayApp
   root_path: .
 default_options:
-  flavor: narravo
-  target: lib/main_narravo.dart
+  flavor: staging
+  target: lib/main_staging.dart
 ''';
 
 const String _overlayMergeYaml = '''

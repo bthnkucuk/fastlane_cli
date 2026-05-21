@@ -25,7 +25,7 @@ class CompletionCommand extends Command<int> {
     argParser.addOption(
       'profile',
       abbr: 'p',
-      help: 'Path to cli_profile.yaml (optional — used to discover action ids).',
+      help: 'Path to profile.yaml (optional — used to discover action ids).',
     );
   }
 

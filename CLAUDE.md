@@ -7,7 +7,7 @@ through a categorized, terminal-first UI. It was extracted from a private
 monorepo at commit `9d24baa7e` of that repo (see [ROADMAP.md](ROADMAP.md)).
 
 End goal: ship as a Homebrew-installable CLI (`brew install fastlane_cli`) so
-any Flutter project can drop a `cli_profile.yaml` next to its own `fastlane/`
+any Flutter project can drop a `profile.yaml` next to its own `fastlane/`
 folder and run lanes without bundling a Ruby/Fastlane runner.
 
 ---
@@ -35,7 +35,7 @@ fastlane/               # The Ruby/Fastlane runner that the Dart binary invokes
   android/Fastfile      # Android lanes (Play Console, metadata)
   common_helpers.rb     # FastlaneCliConfig helpers (option resolution, env, summary_box, ...)
   storepilot_bridge.rb  # JSON-over-stdout bridge for app/metadata queries
-  cli_profile.base.yaml # Shared shortcuts/categories/actions merged into every app profile
+  profile.base.yaml # Shared shortcuts/categories/actions merged into every app profile
   actions/              # Custom fastlane actions
   ios/defaults/         # default review_information / submission / privacy templates
   vendor/               # GITIGNORED — `bundle install --path vendor/bundle` output (will move to user cache; see ROADMAP)
@@ -69,7 +69,7 @@ package.
 | TUI rendering | `nocterm` ^0.6.0 | terminal UI framework (component tree, theme) |
 | Routing | `zenrouter_nocterm` (git fork) | Coordinator pattern from `definev/zenrouter` `feat/zenrouter_nocterm` |
 | Args parsing | `args` ^2.7.0 | `--profile`, `--lang`, `--dry-run` |
-| YAML | `yaml` ^3.1.3 | reading `cli_profile.yaml` |
+| YAML | `yaml` ^3.1.3 | reading `profile.yaml` |
 | Paths | `path` ^1.9.1 | runner/app dir resolution |
 | Tests | `package:test` + `mocktail` (transitive via dev_deps) | |
 
@@ -77,7 +77,7 @@ No DI container — direct constructor injection (small surface).
 
 ### Profile model
 
-`cli_profile.yaml` (per app) is merged on top of `cli_profile.base.yaml`
+`profile.yaml` (per app) is merged on top of `profile.base.yaml`
 (bundled in this repo). Merge rules:
 - `app:` — deep merge, app wins.
 - `default_locale`, scalars — app wins if set.
@@ -136,7 +136,7 @@ Cursor rule: [.cursor/rules/fastlane-logging.mdc](.cursor/rules/fastlane-logging
 ### 5.2 No app-specific values
 Nothing in this repo references a specific Flutter app (no app names,
 no hardcoded bundle ids, no API keys). Everything app-specific is
-supplied via the consumer's `cli_profile.yaml` + environment variables
+supplied via the consumer's `profile.yaml` + environment variables
 documented in `fastlane/ios/Fastfile` / `fastlane/android/Fastfile` headers.
 
 If you find yourself wanting to hardcode a value, that value belongs in the
