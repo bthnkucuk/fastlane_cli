@@ -175,10 +175,25 @@ caller's profile or env, not here.
   bulunamadı)"` / `"atlandı (GoogleService-Info.plist bulunamadı)"` summary
   marker — never hard-fails the upload — while the standalone `upload_dsyms`
   lane hard-fails (`UI.user_error!`) since a no-op symbol upload is useless.
-  **Android Crashlytics mapping / NDK symbol upload is not wired** — no
-  Android lane invokes `uploadCrashlyticsMappingFile<Variant>` /
-  `uploadCrashlyticsSymbolFile<Variant>`. Add via consumer profile + a new
-  lane if needed.
+- Android Crashlytics symbols: the **R8/Kotlin mapping file** is uploaded
+  automatically by the Firebase Crashlytics Gradle plugin during a release
+  build (`flutter build appbundle --release`) — fastlane_cli does nothing
+  for it. The **NDK native-symbol upload** IS wired (since v0.9.0): the
+  `internal_testing` and `production` Android lanes, when an action sets
+  `upload_symbols: "true"` (the SAME flag iOS `test_flight` uses), run
+  `./android/gradlew -p android :app:uploadCrashlyticsSymbolFile<Flavor>Release`
+  after the AAB build. The task name is built by
+  `FastlaneCliConfig.crashlytics_symbol_task` from `resolve_flavor` (no
+  flavor → `uploadCrashlyticsSymbolFileRelease`). The gradle shell-out is
+  wrapped in `with_clean_subprocess_env`. **App-side prerequisite**: the
+  consumer's `android/app/build.gradle.kts` must declare
+  `firebaseCrashlytics { nativeSymbolUploadEnabled = true }` (inside the
+  `android { buildTypes { release { ... } } }` block) for the Gradle task to
+  exist. If it is absent — or the app has no native code — the gradle task
+  errors; the lane catches that, soft-skips with a
+  `"atlandı (uploadCrashlyticsSymbolFile task yok / nativeSymbolUploadEnabled
+  kapalı)"` summary marker, and the AAB build+upload still succeeds (never
+  hard-fails).
 
 Never log secrets. The summary box helper auto-redacts known sensitive keys.
 Redacted patterns (case-insensitive, value after `:` or `=` becomes `***`):

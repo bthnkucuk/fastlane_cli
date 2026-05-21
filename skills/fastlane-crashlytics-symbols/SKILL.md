@@ -1,6 +1,6 @@
 ---
 name: fastlane-crashlytics-symbols
-description: Upload iOS dSYMs to Firebase Crashlytics via fastlane_cli. iOS path is wired (opt-in flag on the TestFlight lane plus a standalone `upload_dsyms` lane); Android mapping / NDK symbol upload is intentionally not wired and needs a lane extension if requested. Triggers on: crashlytics, dSYM, dsym, upload symbols, upload-symbols, IOS_UPLOAD_SYMBOLS_SCRIPT, firebase symbols, symbolicate, native crash, mapping file, R8 mapping, proguard mapping, NDK symbols, uploadCrashlyticsMappingFile, uploadCrashlyticsSymbolFile.
+description: Upload iOS dSYMs and Android NDK native symbols to Firebase Crashlytics via fastlane_cli. iOS path is wired (opt-in flag on the TestFlight lane plus a standalone `upload_dsyms` lane); Android NDK symbol upload is wired into the `internal_testing` / `production` lanes via the same `upload_symbols` flag. Triggers on: crashlytics, dSYM, dsym, upload symbols, upload-symbols, IOS_UPLOAD_SYMBOLS_SCRIPT, firebase symbols, symbolicate, native crash, mapping file, R8 mapping, proguard mapping, NDK symbols, nativeSymbolUploadEnabled, uploadCrashlyticsMappingFile, uploadCrashlyticsSymbolFile.
 ---
 
 # fastlane_cli — Firebase Crashlytics symbol upload
@@ -8,13 +8,17 @@ description: Upload iOS dSYMs to Firebase Crashlytics via fastlane_cli. iOS path
 Use this skill when the user wants Firebase Crashlytics to receive symbol files
 so production crashes get symbolicated.
 
-**Asymmetry up front**: iOS dSYM upload is wired into the existing
-`test_flight` lane (opt-in flag, default off) and exposed as a dedicated
-`upload_dsyms` lane. Android mapping / NDK symbol upload is **not wired** —
-no Android lane in this repo calls
-`uploadCrashlyticsMappingFile<Variant>` or
-`uploadCrashlyticsSymbolFile<Variant>`. If the user asks for Android,
-acknowledge the gap and offer to extend the lane.
+**Both platforms are wired**, driven by ONE shared flag — `upload_symbols`:
+
+- **iOS** — `upload_symbols: "true"` on the `test_flight` lane uploads dSYMs
+  (also exposed as a standalone `upload_dsyms` lane).
+- **Android** — `upload_symbols: "true"` on the `internal_testing` /
+  `production` lanes runs the NDK native-symbol Gradle task after the AAB
+  build. The R8/Kotlin mapping file needs nothing — the Firebase Crashlytics
+  Gradle plugin uploads it automatically during the release build.
+
+A profile that already carries `upload_symbols: "true"` in `default_options`
+enables Crashlytics symbol upload on BOTH platforms with no further change.
 
 ## Prerequisites (iOS) — zero-config since v0.8.0
 
@@ -83,8 +87,8 @@ funnel into this lane (directly or through `internal_test`):
 | `internal_test` (general)  | top-level `internal_test` → same sub-lane for iOS leg | `options.upload_symbols: "true"` |
 
 The general `internal_test` action also drives the Android leg
-(`android internal_testing`); `upload_symbols` is harmlessly ignored there
-because no Android lane reads it.
+(`android internal_testing`); `upload_symbols` is **also honoured there** —
+the same flag triggers Android NDK symbol upload (see the Android section).
 
 Because base actions merge by `id` (full-replace), enabling this in a
 consumer profile means copying each action's full block from
@@ -144,30 +148,80 @@ the core repo. Mention it as an option if the user maintains many app
 profiles and wants symbols on everywhere by default — but do not make the
 change from a consumer-onboarding context.
 
-## Android — current gap
+## Android — NDK native symbols
 
-Neither `android internal_testing`, `android production`, nor
-`android firebase_distribute` invoke the Crashlytics Gradle tasks. Two
-mechanisms exist outside fastlane_cli that may still cover the user:
+Two separate mechanisms, only one of which fastlane_cli touches:
 
-- **R8 mapping**: the Firebase Crashlytics Gradle plugin uploads mapping
-  files automatically during `bundleRelease` when
-  `mappingFileUploadEnabled = true` (default). This happens as a side-effect
-  of `flutter build appbundle --release`, before any Fastlane code runs. If
-  the user is happy with that, there is nothing for fastlane_cli to do.
-- **NDK symbols**: require `./gradlew app:uploadCrashlyticsSymbolFile<Variant>`.
-  There is no automatic path — apps with native libraries (`firebase_crashlytics_ndk`
-  or hand-written C/C++) will not get symbolicated native crashes without
-  this task being run.
+- **R8/Kotlin mapping** — uploaded automatically by the Firebase Crashlytics
+  Gradle plugin during `bundleRelease` (a side-effect of
+  `flutter build appbundle --release`), when `mappingFileUploadEnabled` is
+  true (the plugin default). fastlane_cli does **nothing** for it.
+- **NDK native symbols** — wired (since v0.9.0). The `internal_testing` and
+  `production` lanes in
+  [`fastlane/android/Fastfile`](../../fastlane/android/Fastfile), when
+  `upload_symbols: "true"`, run the Crashlytics native-symbol Gradle task
+  after the AAB build, via the `upload_crashlytics_ndk_symbols` private lane.
 
-If the user requests Android symbol upload, do not invent an action id. Offer
-to extend the lane (`internal_testing` / `production` / a new
-`upload_crashlytics_symbols` lane) — that is a code change in this repo, not
-a profile-only edit.
+### The Gradle task
+
+The task is `uploadCrashlyticsSymbolFile<Flavor>Release`, built by the pure
+helper `FastlaneCliConfig.crashlytics_symbol_task(flavor:, build_type:)`:
+
+| Flavor (`resolve_flavor`) | Task name                                  |
+| ------------------------- | ------------------------------------------ |
+| `narravo`                 | `uploadCrashlyticsSymbolFileNarravoRelease` |
+| `freeStaging`             | `uploadCrashlyticsSymbolFileFreeStagingRelease` |
+| _(none)_                  | `uploadCrashlyticsSymbolFileRelease`       |
+
+Only the first letter of each segment is capitalised — Gradle variant
+casing, not title-case. The lane invokes:
+
+```sh
+cd <app-root> && ./android/gradlew -p android :app:<task> --stacktrace
+```
+
+wrapped in `with_clean_subprocess_env` (same GEM_HOME scrub as the flutter
+shell-outs — gradle transitively spawns tooling).
+
+### App-side prerequisite (the consumer must add this)
+
+The Gradle task only exists if the consumer app enables native symbol
+upload. In each `android/app/build.gradle.kts`, inside the release build
+type:
+
+```kotlin
+android {
+    buildTypes {
+        release {
+            // ...existing release config...
+            firebaseCrashlytics {
+                nativeSymbolUploadEnabled = true
+            }
+        }
+    }
+}
+```
+
+(Groovy `build.gradle` equivalent: `firebaseCrashlytics { nativeSymbolUploadEnabled true }`.)
+This requires the `com.google.firebase.crashlytics` Gradle plugin to be
+applied. fastlane_cli does NOT and MUST NOT edit consumer apps — this is the
+user's one-time setup step.
+
+### Soft-skip behaviour
+
+If the task does not exist — the app has not applied the Crashlytics plugin,
+`nativeSymbolUploadEnabled` is false, or the app simply has no native code —
+the gradle invocation errors. The lane **catches the error and soft-skips**:
+it sets the summary marker to
+`atlandı (uploadCrashlyticsSymbolFile task yok / nativeSymbolUploadEnabled kapalı)`
+and the AAB build + Play Store upload still succeed. NDK symbol upload never
+hard-fails the lane — mirrors the iOS `symbols_status` philosophy.
 
 ## After invoking
 
-Quote the summary box's `Symbols` line back to the user. Possible values:
+Quote the summary box's symbols line back to the user.
+
+**iOS** `test_flight` — `Symbols` line:
 
 - `Symbols : atlandı` — `upload_symbols` was false (default).
 - `Symbols : atlandı (upload-symbols bulunamadı)` — flag was true but the
@@ -181,6 +235,16 @@ Quote the summary box's `Symbols` line back to the user. Possible values:
 
 For Path B (`upload_dsyms`) the summary title is `iOS · dSYM yüklendi (Crashlytics)`
 and the box lists the script, the script source, the plist, and the dSYM paths used.
+
+**Android** `internal_testing` / `production` — `NDK symbols` line:
+
+- `NDK symbols : atlandı` — `upload_symbols` was false (default).
+- `NDK symbols : atlandı (uploadCrashlyticsSymbolFile task yok / nativeSymbolUploadEnabled kapalı)`
+  — flag was true but the gradle task is absent (no Crashlytics plugin,
+  `nativeSymbolUploadEnabled` off, or no native code). The AAB still
+  uploaded; only symbols were skipped.
+- `NDK symbols : yüklendi (<task>)` — upload succeeded; `<task>` is the exact
+  `uploadCrashlyticsSymbolFile<Flavor>Release` task that ran.
 
 ## Troubleshooting
 
@@ -207,10 +271,15 @@ and the box lists the script, the script source, the plist, and the dSYM paths u
 
 ## Do not
 
-- Tell the user Android Crashlytics upload "works" — it doesn't, from this
-  repo. Acknowledge the gap.
-- Hardcode `GoogleService-Info.plist` paths into base lanes or this repo —
-  app-specific, must come from the consumer's env / profile.
+- Tell the user Android NDK symbols upload without the app-side
+  `firebaseCrashlytics { nativeSymbolUploadEnabled = true }` — without it the
+  Gradle task does not exist and the lane soft-skips. Always state the
+  prerequisite.
+- Hardcode `GoogleService-Info.plist` paths or Android flavor names into base
+  lanes or this repo — app-specific, must come from the consumer's env /
+  profile (`resolve_flavor`).
+- Edit a consumer app's `build.gradle.kts` from fastlane_cli — the
+  `nativeSymbolUploadEnabled` line is the user's one-time setup.
 - Tell the user to hand-`cp` the `upload-symbols` binary out of DerivedData
   and pin `IOS_UPLOAD_SYMBOLS_SCRIPT` — that is exactly the fragile workflow
   v0.8.0's auto-discovery + per-user cache removed. Mention the env vars only
