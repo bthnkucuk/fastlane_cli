@@ -640,4 +640,74 @@ RSpec.describe FastlaneCliConfig do
       }.to raise_error(StandardError)
     end
   end
+
+  describe ".with_clean_subprocess_env" do
+    let(:scrubbed_keys) { FastlaneCliConfig::SUBPROCESS_ENV_KEYS_TO_SCRUB }
+
+    around do |example|
+      saved_keys = scrubbed_keys.each_with_object({}) { |k, h| h[k] = ENV[k] }
+      saved_path = ENV["PATH"]
+      example.run
+    ensure
+      saved_keys.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+      ENV["PATH"] = saved_path unless saved_path.nil?
+    end
+
+    it "scrubs GEM_HOME / GEM_PATH / BUNDLE_* inside the block" do
+      ENV["GEM_HOME"] = "/brewed/fastlane/gems"
+      ENV["GEM_PATH"] = "/a:/b"
+      ENV["BUNDLE_GEMFILE"] = "/some/Gemfile"
+
+      seen = {}
+      described_class.with_clean_subprocess_env do
+        seen["GEM_HOME"] = ENV["GEM_HOME"]
+        seen["GEM_PATH"] = ENV["GEM_PATH"]
+        seen["BUNDLE_GEMFILE"] = ENV["BUNDLE_GEMFILE"]
+      end
+
+      expect(seen.values).to all(be_nil)
+    end
+
+    it "strips fastlane brew PATH segments inside the block" do
+      ENV["PATH"] = [
+        "/opt/homebrew/Cellar/fastlane/2.234.0/libexec/bin",
+        "/Users/me/.local/share/fastlane/4.0.0/bin",
+        "/usr/local/bin",
+        "/usr/bin"
+      ].join(":")
+
+      seen_path = nil
+      described_class.with_clean_subprocess_env { seen_path = ENV["PATH"] }
+
+      expect(seen_path).to eq("/usr/local/bin:/usr/bin")
+    end
+
+    it "restores ENV after the block returns" do
+      ENV["GEM_HOME"] = "/original/gems"
+      ENV["PATH"] = "/opt/homebrew/Cellar/fastlane/2.234.0/libexec/bin:/usr/bin"
+
+      described_class.with_clean_subprocess_env { :ok }
+
+      expect(ENV["GEM_HOME"]).to eq("/original/gems")
+      expect(ENV["PATH"]).to eq("/opt/homebrew/Cellar/fastlane/2.234.0/libexec/bin:/usr/bin")
+    end
+
+    it "restores ENV even when the block raises" do
+      ENV["GEM_HOME"] = "/original/gems"
+      ENV["PATH"] = "/opt/homebrew/Cellar/fastlane/2.234.0/libexec/bin:/usr/bin"
+
+      expect {
+        described_class.with_clean_subprocess_env { raise "boom" }
+      }.to raise_error("boom")
+
+      expect(ENV["GEM_HOME"]).to eq("/original/gems")
+      expect(ENV["PATH"]).to eq("/opt/homebrew/Cellar/fastlane/2.234.0/libexec/bin:/usr/bin")
+    end
+
+    it "no-ops when called without a block" do
+      ENV["GEM_HOME"] = "/original/gems"
+      expect { described_class.with_clean_subprocess_env }.not_to raise_error
+      expect(ENV["GEM_HOME"]).to eq("/original/gems")
+    end
+  end
 end
