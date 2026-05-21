@@ -1,6 +1,6 @@
 # fastlane_cli
 
-![coverage](https://img.shields.io/badge/coverage-52.2%25-yellow)
+![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bthnkucuk/0538334b34cc8408d52d5e058d12be05/raw/fastlane_cli-coverage.json)
 
 A terminal-first Fastlane assistant for Flutter projects. Drop a
 `cli_profile.yaml` next to your own `fastlane/` folder and `fastlane_cli`
