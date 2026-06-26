@@ -42,6 +42,7 @@ env var if the user keeps it elsewhere.
 | `ios_upload_promotional_metadata`  | `upload_metadata_promotion_whats_news` (`include_screenshots: "false"`) | push | Promotion text + What's New only.                                                  |
 | `ios_upload_app_privacy`           | `upload_app_privacy_details`                  | push      | Uploads the App Privacy nutrition-label JSON.                                      |
 | `ios_download_app_privacy`         | `download_app_privacy_details`                | pull      | Downloads the current App Privacy JSON.                                            |
+| `ios_upload_app_previews`          | `upload_app_previews`                         | push      | Uploads App Preview **videos** (15–30s clips). Needs fastlane ≥ 2.233. See notes.  |
 
 Credentials: App Store Connect API key, in priority order — see
 [CLAUDE.md](../../CLAUDE.md) §5.3:
@@ -53,6 +54,27 @@ Local layout: iOS metadata under
 `$IOS_METADATA_PATH` (default: `<fastlane_root>/ios/metadata/<locale>/`),
 screenshots under `$IOS_SCREENSHOTS_PATH`, promotional metadata under
 `$IOS_PROMOTION_METADATA_PATH`. Use the matching `FASTLANE_*` aliases too.
+
+### App Preview videos (`ios_upload_app_previews`)
+
+Videos live under `$IOS_APP_PREVIEWS_PATH` (default:
+`<fastlane_root>/ios/previews/<store-locale>/`), same per-locale shape as
+screenshots. Apple's hard requirements (fastlane skips anything that fails):
+
+- **Filename must contain a device token** (case-insensitive substring), e.g.
+  `…_IPHONE_67.mp4`, `…_IPAD_PRO_3GEN_129.mov`. No token → skipped.
+- Extension `mp4` / `mov` / `m4v`; **duration 15–30 s**; size **< 500 MB**.
+- Exact resolution per token (6.9–6.1″ iPhone = 886×1920; 5.5″ = 1080×1920;
+  13″/11″ iPad = 1200×1600). Max **3 per locale per device type**.
+- Requires an **editable** App Store version (Prepare for Submission state).
+
+Options: `overwrite_preview_videos` (default **false** = additive +
+checksum-idempotent; `true` deletes **all** existing previews for every touched
+locale — across *all* device types, not just the ones in the folder — before
+re-uploading); `preview_frame_time_code` (poster frame, e.g. `00:00:05`).
+App Store reuses a larger size for smaller devices in the same family
+(6.9″ iPhone → all iPhones; 13″ iPad → all iPads) and falls back to the app's
+**primary language** for locales without their own video.
 
 ## Confirm before destructive pulls
 

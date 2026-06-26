@@ -76,6 +76,7 @@ categories:
       - ios_download_screenshots
       - ios_upload_promotional_metadata
       - ios_upload_app_privacy
+      - ios_upload_app_previews
       - ios_download_app_privacy
 
 actions:
@@ -455,6 +456,20 @@ actions:
       type: fastlane
       platform: ios
       lane: upload_app_privacy_details
+
+  - id: ios_upload_app_previews
+    category: ios
+    title:
+      tr: iOS App Preview yükle
+      en: iOS App Preview upload
+    description:
+      tr: App Preview videolarını App Store Connect'e yükler (overwrite default kapalı)
+      en: Uploads App Preview videos to App Store Connect (overwrite off by default)
+    shortcut: true
+    command:
+      type: fastlane
+      platform: ios
+      lane: upload_app_previews
 
   - id: ios_download_app_privacy
     category: ios

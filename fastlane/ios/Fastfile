@@ -662,6 +662,75 @@ platform :ios do
     )
   end
 
+  desc "Upload iOS App Preview videos to App Store Connect"
+  lane :upload_app_previews do |options|
+    # App Preview videos are uploaded independently of update_metadata: they are
+    # large (<=500MB each), slow, and rarely change, so we never want them
+    # re-pushed on every metadata text edit. Mirrors the dedicated
+    # upload_app_privacy_details / upload_metadata_promotion_whats_news lanes.
+    #
+    # app_previews_path (deliver) needs fastlane >= 2.233.0; lanes run against
+    # the brew-installed gem, so guard explicitly for a clear error on old setups.
+    if Gem::Version.new(Fastlane::VERSION) < Gem::Version.new("2.233.0")
+      UI.user_error!(
+        "App Preview upload needs fastlane >= 2.233.0 (app_previews_path support); " \
+        "found #{Fastlane::VERSION}. Run `brew upgrade fastlane`."
+      )
+    end
+
+    previews_path = FastlaneCliConfig.resolve_path_in_fastlane(
+      options: options,
+      option_key: :app_previews_path,
+      env_keys: %w[IOS_APP_PREVIEWS_PATH FASTLANE_IOS_APP_PREVIEWS_PATH],
+      default_relative: "ios/previews"
+    )
+    UI.user_error!("App previews path not found: #{previews_path}") unless Dir.exist?(previews_path)
+
+    app_identifier = ios_app_identifier(options)
+    # Default false: additive + checksum-idempotent (byte-identical videos are
+    # skipped). `true` deletes ALL existing previews for each touched locale —
+    # every device type, not just the ones present in the folder — before
+    # re-uploading. Opt in only when you want a deterministic disk==remote swap.
+    overwrite = FastlaneCliConfig.bool_option(options, :overwrite_preview_videos, default: false)
+    frame_time = options[:preview_frame_time_code]
+    auth_options = resolve_app_store_connect_api_key(options)
+
+    UI.message("[upload_app_previews] app_identifier=#{app_identifier}")
+    UI.message("[upload_app_previews] previews_path=#{previews_path}")
+    UI.message("[upload_app_previews] overwrite=#{overwrite} frame_time=#{frame_time.inspect}")
+
+    # deliver uploads previews whenever app_previews_path is set, independently
+    # of the skip_* flags (see Deliver::Runner#upload_metadata). We skip
+    # metadata/screenshots/binary so this lane ONLY touches App Preview videos.
+    deliver_options = {
+      submit_for_review: false,
+      automatic_release: false,
+      force: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+      skip_binary_upload: true,
+      skip_app_version_update: true,
+      run_precheck_before_submit: false,
+      app_identifier: app_identifier,
+      app_previews_path: previews_path,
+      overwrite_preview_videos: overwrite
+    }
+    deliver_options[:preview_frame_time_code] = frame_time unless frame_time.to_s.strip.empty?
+
+    deliver(deliver_options.merge(auth_options))
+    UI.success("[upload_app_previews] deliver finished")
+
+    summary = [
+      "App identifier   : #{app_identifier}",
+      "Previews path    : #{previews_path}",
+      "Overwrite        : #{overwrite}",
+      "Frame time code  : #{frame_time.to_s.strip.empty? ? '(default)' : frame_time}",
+      "Auth strategy    : #{auth_options.keys.join(', ')}"
+    ]
+    summary << "WARN overwrite=true: her dokunulan locale'in TUM cihaz-tipi preview'lari silinip yeniden yuklendi" if overwrite
+    FastlaneCliConfig.print_summary_box("iOS - App Preview videolari yuklendi", summary)
+  end
+
   desc "Upload iOS promotional metadata (what's new / promo text)"
   lane :upload_metadata_promotion_whats_news do |options|
     metadata_path = FastlaneCliConfig.resolve_path_in_fastlane(
