@@ -380,6 +380,28 @@ RSpec.describe PlaySetupHelpers do
       end
     end
 
+    it "prefers the app override over the CLI default when BOTH files exist" do
+      # The feature's #1 risk mitigation: an app's own Data safety export
+      # must ALWAYS beat the generic CLI template — a swap of these two
+      # tiers would silently upload generic answers over a hand-filled form
+      # (whole-form replacement, no read counterpart to recover from).
+      with_tmpdir do |dir|
+        fastlane_root = File.join(dir, "fastlane")
+        runner_root = File.join(dir, "runner")
+        app_csv = write_file(File.join(fastlane_root, "android", "data_safety.csv"), "app csv")
+        write_file(File.join(runner_root, "android", "defaults", "data_safety.csv"), "cli csv")
+
+        resolved = described_class.resolve_data_safety_csv_path(
+          {}, fastlane_root: fastlane_root, runner_root: runner_root
+        )
+
+        expect(resolved).to eq(
+          path: app_csv,
+          source: "app override (android/data_safety.csv)"
+        )
+      end
+    end
+
     it "falls back to the CLI default template last" do
       with_tmpdir do |dir|
         runner_root = File.join(dir, "runner")

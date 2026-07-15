@@ -63,10 +63,21 @@ module Fastlane
 
         client.begin_edit(package_name: params[:package_name])
         begin
+          edit_id = client.current_edit.id
+
           # An unknown defaultLanguage is rejected by the API with an opaque
           # error — pre-validate against the locales actually on the listing.
+          #
+          # NOTE: deliberately NOT `client.listings` — supply's wrapper does
+          # `result.listings.map` with no nil guard, and google-apis omits
+          # empty collections (a zero-locale app returns a
+          # ListingsListResponse whose #listings is nil), so the wrapper
+          # crashes with NoMethodError exactly on the fresh-app case this
+          # validation exists for. Query the raw publisher instead.
           if desired.key?(:default_language)
-            locales = client.listings.map(&:language)
+            locales = Array(
+              publisher.list_edit_listings(params[:package_name], edit_id)&.listings
+            ).map(&:language)
             PlaySetupHelpers.ensure_default_language_listed!(
               default_language: desired[:default_language],
               listed_locales: locales
@@ -77,7 +88,7 @@ module Fastlane
             publisher: publisher,
             details_class: AndroidPublisher::AppDetails,
             package_name: params[:package_name],
-            edit_id: client.current_edit.id,
+            edit_id: edit_id,
             desired: desired
           )
 

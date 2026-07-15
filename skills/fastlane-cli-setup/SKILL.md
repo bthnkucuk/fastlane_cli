@@ -156,8 +156,14 @@ export FASTLANE_APP_IDENTIFIER="com.example.app"
 
 Optional — Play Console "Set up your app" lanes (`android_store_setup`,
 `android_update_app_details`, `android_upload_data_safety`; see
-`fastlane-metadata-sync`). Each also resolves from a metadata-root file
-(`contactEmail.txt` etc.) when unset:
+`fastlane-metadata-sync`). The four **contact fields** also resolve from a
+metadata-root file when the env var is unset (`contactEmail.txt` /
+`contactPhone.txt` / `contactWebsite.txt` / `defaultLanguage.txt` next to
+the locale folders). The **Data safety CSV has NO metadata-root tier** — its
+ladder is the `data_safety_csv_path` option → `ANDROID_DATA_SAFETY_CSV_PATH`
+env → app override at `<fastlane_root>/android/data_safety.csv` → the CLI
+default template. A CSV placed anywhere else is silently ignored and the
+generic template gets uploaded instead (whole-form replacement):
 
 ```sh
 export ANDROID_CONTACT_EMAIL="support@example.com"    # Play Console contact email
