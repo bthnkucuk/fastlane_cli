@@ -61,8 +61,13 @@ module Fastlane
           )
           stats
         rescue Google::Apis::Error => e
+          # Google::Apis::ClientError / ServerError expose #status_code (the
+          # raw HTTP status). Surface it so a 400 vs 403 is obvious at a
+          # glance; omit the "(HTTP …)" part gracefully when unavailable.
+          status = e.respond_to?(:status_code) ? e.status_code : nil
+          http_part = status ? " (HTTP #{status})" : ""
           UI.user_error!(
-            "Google Play Data safety upload failed: #{e.message}. " \
+            "Google Play Data safety upload failed#{http_part}: #{e.message}. " \
             "A 403 usually means the service account lacks app-content permissions in " \
             "Play Console → Users and permissions; a 400 usually means the CSV does not " \
             "match the Play Console Data safety export format."

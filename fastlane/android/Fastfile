@@ -672,14 +672,32 @@ platform :android do
       base_dir: FastlaneCliConfig.resolve_app_root(options)
     )
 
-    # A CSV normally ALWAYS resolves (the CLI ships a default template);
-    # reaching here means even the bundled default is absent.
+    # A CSV path normally always resolves (the CLI ships a default template);
+    # a nil path means even the bundled default is absent.
     if csv[:path].nil?
       UI.user_error!(
         "No Data safety CSV resolved — even the CLI default template " \
         "(#{PlaySetupHelpers::DATA_SAFETY_DEFAULT_RELATIVE}) is missing. " \
         "Provide data_safety_csv_path, set #{PlaySetupHelpers::DATA_SAFETY_ENV}, or " \
         "place #{PlaySetupHelpers::DATA_SAFETY_APP_RELATIVE} in the app's fastlane folder."
+      )
+    end
+
+    # The generic CLI-default template is OPT-IN only. It is a generic
+    # reference the user is expected to replace — Google rejects it (400)
+    # and pushing it would overwrite a hand-filled form with generic
+    # answers. Refuse it unless the caller knowingly opts in with
+    # data_safety_allow_default:true. A user-provided CSV (option / env /
+    # app override) always proceeds.
+    allow_default = FastlaneCliConfig.bool_option(options, :data_safety_allow_default, default: false)
+    if !PlaySetupHelpers.user_provided_csv?(csv[:source]) && !allow_default
+      UI.user_error!(
+        "Refusing to upload the generic CLI-default Data safety template " \
+        "(#{csv[:source]}). Export your own form from Play Console → App content → " \
+        "Data safety → Export and place it at " \
+        "<fastlane_root>/#{PlaySetupHelpers::DATA_SAFETY_APP_RELATIVE} (or set " \
+        "#{PlaySetupHelpers::DATA_SAFETY_ENV} / pass data_safety_csv_path). To knowingly " \
+        "upload the bundled reference template anyway, pass data_safety_allow_default:true."
       )
     end
 
@@ -732,8 +750,19 @@ platform :android do
             update_metadata(options)
             "yüklendi (#{locales.join(', ')})"
           rescue => e
-            step_errors << "listing: #{first_line.call(e)}"
-            "hata (#{first_line.call(e)})"
+            # A brand-new app / track has no release yet, so supply rejects
+            # the image/screenshot push with a "release/track not ready"
+            # error even with changelog upload skipped. For a *setup* lane
+            # that is a normal "not ready yet" condition — soft-skip instead
+            # of hard-failing (the listing rides along with the first release
+            # once a build is uploaded). Any OTHER error is a real failure.
+            if PlaySetupHelpers.listing_not_ready_error?(e.message)
+              "atlandı (track'te henüz release yok — önce bir build yükleyin; " \
+                "listing ilk sürümle birlikte gönderilir)"
+            else
+              step_errors << "listing: #{first_line.call(e)}"
+              "hata (#{first_line.call(e)})"
+            end
           end
         end
       end
@@ -762,8 +791,11 @@ platform :android do
         end
       end
 
-    # ③ Data safety — the CSV always resolves via the CLI default template
-    # unless even that is missing.
+    # ③ Data safety — only a USER-provided CSV (option / env / app override)
+    # is auto-uploaded. The generic CLI-default template is NEVER pushed by
+    # the composite: Google rejects it (400) and it would overwrite a real,
+    # hand-filled form with generic answers. When only the template (or
+    # nothing) resolves, soft-skip and tell the user to export their own CSV.
     csv = PlaySetupHelpers.resolve_data_safety_csv_path(
       options,
       fastlane_root: FastlaneCliConfig.resolve_fastlane_root(options),
@@ -773,8 +805,8 @@ platform :android do
     safety_status =
       if !FastlaneCliConfig.bool_option(options, :include_data_safety, default: true)
         "atlandı (include_data_safety=false)"
-      elsif csv[:path].nil?
-        "atlandı (Data safety CSV bulunamadı — CLI default şablon dahi yok)"
+      elsif !PlaySetupHelpers.user_provided_csv?(csv[:source])
+        "atlandı (kendi data_safety.csv'ni ver — Play Console → App content → Data safety → Export)"
       else
         begin
           stats = google_play_data_safety(
