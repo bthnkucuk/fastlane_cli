@@ -111,6 +111,32 @@ module PlaySetupHelpers
   end
 
   # ---------------------------------------------------------------------------
+  # Composite store_setup — listing step error classification
+  # ---------------------------------------------------------------------------
+
+  # supply "the track/release isn't ready yet" phrases (case-insensitive
+  # substrings). On a brand-new app the store_setup listing step pushes
+  # images/screenshots to a track that has no release yet, and supply raises
+  # one of these even when changelog upload is skipped. For a *setup* lane on
+  # a fresh app that is a normal "not ready yet" condition, not a real error —
+  # so the composite soft-skips instead of hard-failing (the standalone
+  # update_metadata lane keeps hard-failing, which is correct for it).
+  LISTING_NOT_READY_PHRASES = [
+    "could not find release for version code",
+    "unable to find the requested track",
+    "was not found"
+  ].freeze
+
+  # True when `message` (case-insensitive) matches any known supply
+  # "track/release not ready" phrase. Robust to nil / empty → false.
+  def listing_not_ready_error?(message)
+    text = message.to_s.downcase
+    return false if text.strip.empty?
+
+    LISTING_NOT_READY_PHRASES.any? { |phrase| text.include?(phrase) }
+  end
+
+  # ---------------------------------------------------------------------------
   # edits.details GET → diff → PATCH
   # ---------------------------------------------------------------------------
 
@@ -274,6 +300,22 @@ module PlaySetupHelpers
     end
 
     { path: nil, source: "bulunamadı" }
+  end
+
+  # True when the resolved Data safety CSV came from the USER — an explicit
+  # `data_safety_csv_path` option, the ANDROID_DATA_SAFETY_CSV_PATH env, or
+  # the app's own `<fastlane_root>/android/data_safety.csv` override — as
+  # opposed to the bundled generic CLI-default template ("CLI default şablon")
+  # or nothing ("bulunamadı"). The composite store_setup lane only
+  # auto-uploads a user-provided CSV: the generic template is never pushed
+  # automatically (Google rejects it with a 400 and it would overwrite a
+  # hand-filled form with generic answers). Matches the `source` labels
+  # produced by resolve_data_safety_csv_path.
+  def user_provided_csv?(source)
+    label = source.to_s
+    label.start_with?("option ") ||
+      label.start_with?("env ") ||
+      label.start_with?("app override")
   end
 
   # POSTs the Data safety CSV via applications.dataSafety. `publisher` /

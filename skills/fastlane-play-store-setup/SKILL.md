@@ -49,11 +49,21 @@ Runs three steps in order, then ALWAYS prints one final summary box:
    directories. Base-profile defaults: `track: alpha`,
    `include_images: "true"`, `include_screenshots: "true"`, and
    `include_changelogs: "false"` — changelogs need an existing release,
-   which a brand-new app does not have.
+   which a brand-new app does not have. On a **brand-new app the track has
+   no release yet**, so supply rejects the image/screenshot push with a
+   "release/track not ready" error. The composite treats that as a normal
+   **not-ready condition and soft-skips** (`atlandı (track'te henüz release
+   yok …)`) — it is NOT a failure. Upload a build first; the listing is
+   delivered together with that first release.
 2. **Contact details** — via the `google_play_app_details` custom action,
    only when at least one field resolves (see value sources below).
-3. **Data safety** — via the `google_play_data_safety` custom action with
-   the resolved CSV (source named in the box).
+3. **Data safety** — via the `google_play_data_safety` custom action, but
+   **only when a USER-provided CSV resolves** (option / `ANDROID_DATA_SAFETY_CSV_PATH`
+   env / app `<fastlane_root>/android/data_safety.csv`). The generic
+   CLI-default template is **NEVER auto-uploaded** — Google rejects it (400)
+   and pushing it would overwrite a real form with generic answers. When only
+   the template (or nothing) resolves, the step **soft-skips** (`atlandı
+   (kendi data_safety.csv'ni ver …)`).
 
 Failure semantics (important when reading the output back to the user):
 
@@ -85,6 +95,14 @@ form first, so an accidental upload is unrecoverable. That is why the action
 is `requires_confirmation: true` and the summary box always names which CSV
 source was used ("app override" vs "CLI default şablon").
 
+**Requires a user-provided CSV.** If only the bundled generic CLI-default
+template resolves, the lane **hard-fails** and tells the user to export their
+own form (Play Console → App content → Data safety → Export) to
+`<fastlane_root>/android/data_safety.csv`. To knowingly upload the bundled
+reference template anyway, pass `data_safety_allow_default:true` (default
+`false`). A missing template (nothing resolves at all) still hard-fails as
+before.
+
 ## Value sources
 
 ### Contact details (per field, first hit wins)
@@ -114,17 +132,29 @@ pull → edit → `android_update_app_details` round-trip works.
 
 **The app override always wins over the CLI template.** There is **NO
 metadata-root tier** for the CSV — a `data_safety.csv` dropped next to
-`contactEmail.txt` is silently ignored and the generic template gets
-uploaded instead.
+`contactEmail.txt` is silently ignored.
+
+Only tiers 1–3 count as a **user-provided** CSV. The tier-4 CLI-default
+template is an **opt-in reference only — it is NEVER auto-uploaded**:
+
+- `android_store_setup` (composite) **soft-skips** the Data safety step when
+  only the template (or nothing) resolves — it uploads nothing unless a
+  user CSV is provided.
+- `android_upload_data_safety` (standalone) **hard-fails** when only the
+  template resolves, unless the caller passes `data_safety_allow_default:true`
+  to knowingly use it.
+
+Why: Google rejects the generic template with a **400**, and auto-pushing it
+would overwrite a hand-filled form with generic answers (whole-form
+replacement, no read counterpart to recover from).
 
 The CLI default template carries conservative typical
 Flutter + Firebase (Crashlytics) answers: collects **crash logs +
 diagnostics only**, collected not shared, encrypted in transit, collection
-required, purpose Analytics. If the app's data practices differ **in any
-way** (accounts, analytics identifiers, location, ads...), the user must
-supply their own CSV: fill the form once in Play Console → **App content →
-Data safety → Export to CSV**, and save it as
-`<fastlane_root>/android/data_safety.csv`.
+required, purpose Analytics. To use it, the user should **export their own**
+CSV instead: fill the form once in Play Console → **App content → Data safety
+→ Export to CSV**, and save it as `<fastlane_root>/android/data_safety.csv`
+(or point `data_safety_csv_path` / `ANDROID_DATA_SAFETY_CSV_PATH` at it).
 
 ## Capability matrix — automated vs manual
 
@@ -132,7 +162,7 @@ Data safety → Export to CSV**, and save it as
 | ------------------------------------------------------------- | ----------- | ---------------------------------- |
 | Store listing (text, graphics, screenshots)                   | ✅          | `update_metadata` (supply)         |
 | Contact details + default language                            | ✅          | `google_play_app_details` action   |
-| Data safety form                                              | ✅          | `google_play_data_safety` action   |
+| Data safety form                                              | ✅ *(user CSV only)* | `google_play_data_safety` action — needs a user-provided CSV; the generic template is never auto-uploaded |
 | **Privacy policy URL**                                        | ❌ manual   | **No API anywhere** — it is not in the Data safety CSV and has no Play Developer API endpoint. Cannot be automated; it is listed FIRST in the checklist because users expect otherwise. |
 | App access (test credentials)                                 | ❌ manual   | Console only                       |
 | Ads declaration                                               | ❌ manual   | Console only                       |
@@ -167,12 +197,19 @@ fastlane_cli run android_update_app_details --profile <path> \
 
 ## Do not
 
-- Run `android_upload_data_safety` (or the composite) against an app whose
-  Data safety form was hand-filled in the Console without first checking
-  which CSV will be used — the upload replaces the whole form and cannot be
-  pulled back. The summary box names the source; if it says "CLI default
-  şablon" and the app is not a plain crash-logs-only app, stop and export
-  the app's own CSV first.
+- Expect `android_store_setup`/`android_upload_data_safety` to push the
+  bundled generic template — it never does. The composite soft-skips Data
+  safety unless a user CSV (option / `ANDROID_DATA_SAFETY_CSV_PATH` env / app
+  `<fastlane_root>/android/data_safety.csv`) is provided; the standalone lane
+  hard-fails on the template unless `data_safety_allow_default:true`. Export
+  the app's own CSV first (Play Console → App content → Data safety → Export).
+- Pass `data_safety_allow_default:true` to `android_upload_data_safety`
+  against an app whose Data safety form was hand-filled in the Console — the
+  upload replaces the whole form with the generic template and cannot be
+  pulled back.
+- Treat the composite's `atlandı (track'te henüz release yok …)` listing
+  marker as a failure — it is a normal soft-skip on a brand-new app. Upload a
+  build first; the listing rides along with the first release.
 - Put `data_safety.csv` at the metadata root — the CSV has no metadata-root
   tier; it belongs at `<fastlane_root>/android/data_safety.csv`.
 - Promise privacy-policy automation — the URL has no API anywhere and must

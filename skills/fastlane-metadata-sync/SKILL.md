@@ -40,9 +40,9 @@ supports:
 
 | Action id                     | Lane (`android`)     | What it does                                                                                                      |
 | ----------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `android_store_setup`         | `store_setup`        | Composite: ① listing (`update_metadata`, `track: alpha`, changelogs off) → ② contact details → ③ Data safety. Confirmation-gated. Prints the manual-remainder checklist. |
+| `android_store_setup`         | `store_setup`        | Composite: ① listing (`update_metadata`, `track: alpha`, changelogs off) → ② contact details → ③ Data safety. Confirmation-gated. Prints the manual-remainder checklist. Listing soft-skips on a brand-new app (no release yet); Data safety soft-skips unless a **user** CSV is provided (generic template never auto-uploaded). |
 | `android_update_app_details`  | `update_app_details` | Contact email/phone/website + default language via `edits.details`. GET-diff-PATCH: only changed fields are written; no-op when Play is already current. |
-| `android_upload_data_safety`  | `upload_data_safety` | Uploads the Data safety form from CSV. Confirmation-gated (whole-form replacement). |
+| `android_upload_data_safety`  | `upload_data_safety` | Uploads the Data safety form from CSV. Confirmation-gated (whole-form replacement). Requires a **user** CSV; hard-fails on the bundled template unless `data_safety_allow_default:true`. |
 
 **Contact details resolution** (per field, first hit wins): the
 `contact_email` / `contact_phone` / `contact_website` / `default_language`
@@ -61,12 +61,17 @@ validated against the listing's existing locales before it is sent.
 `<fastlane_root>/android/data_safety.csv` → CLI default template at
 `<runner>/android/defaults/data_safety.csv` (conservative
 Flutter + Firebase Crashlytics answers: crash logs + diagnostics collected,
-encrypted in transit, nothing shared). The app override **always wins** over
-the CLI template. **Warnings**: the upload **replaces the ENTIRE form** and
-the API has **no read/pull counterpart** — there is no way to download the
-current form first. Any app whose data practices differ from the template
-MUST export its own CSV from a filled-in Play Console form (or hand-edit the
-template) and place it at `<fastlane_root>/android/data_safety.csv`.
+encrypted in transit, nothing shared). Only the first three tiers count as a
+**user-provided** CSV; the tier-4 CLI-default template is an opt-in reference
+that is **NEVER auto-uploaded** (Google rejects it with a 400 and it would
+overwrite a real form with generic answers). `store_setup` **soft-skips** Data
+safety unless a user CSV resolves; `android_upload_data_safety` **hard-fails**
+on the template unless `data_safety_allow_default:true` is passed. **Warnings**:
+the upload **replaces the ENTIRE form** and the API has **no read/pull
+counterpart** — there is no way to download the current form first. Any app
+whose data practices differ from the template MUST export its own CSV from a
+filled-in Play Console form and place it at
+`<fastlane_root>/android/data_safety.csv` (or point the option / env var at it).
 
 **Stays manual** (no Play Developer API; `store_setup` prints this checklist):
 **privacy policy URL** (first — it looks automatable but is not), App access,

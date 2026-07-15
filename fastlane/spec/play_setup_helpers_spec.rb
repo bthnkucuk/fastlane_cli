@@ -124,6 +124,38 @@ RSpec.describe PlaySetupHelpers do
     end
   end
 
+  describe ".listing_not_ready_error?" do
+    it "matches the real 'could not find release for version code' error (any case)" do
+      expect(
+        described_class.listing_not_ready_error?(
+          "Could not find release for version code '' to update changelog"
+        )
+      ).to be true
+    end
+
+    it "matches the 'unable to find the requested track' phrase" do
+      expect(
+        described_class.listing_not_ready_error?("Unable to find the requested track: alpha")
+      ).to be true
+    end
+
+    it "matches a 'was not found' track-not-found variant" do
+      expect(
+        described_class.listing_not_ready_error?("Track 'alpha' was not found.")
+      ).to be true
+    end
+
+    it "is false for an unrelated error" do
+      expect(described_class.listing_not_ready_error?("boom")).to be false
+    end
+
+    it "is false for nil and empty input" do
+      expect(described_class.listing_not_ready_error?(nil)).to be false
+      expect(described_class.listing_not_ready_error?("")).to be false
+      expect(described_class.listing_not_ready_error?("   ")).to be false
+    end
+  end
+
   describe ".changed_fields" do
     let(:current) do
       FakeAppDetails.new(
@@ -424,6 +456,36 @@ RSpec.describe PlaySetupHelpers do
 
         expect(resolved).to eq(path: nil, source: "bulunamadı")
       end
+    end
+  end
+
+  describe ".user_provided_csv?" do
+    # Gates the composite store_setup auto-upload and the standalone
+    # upload_data_safety hard-fail: only a user-supplied CSV (option / env /
+    # app override) may be pushed automatically; the generic CLI template and
+    # a missing file must NOT be. The labels mirror resolve_data_safety_csv_path.
+    it "is true for a CSV supplied via the data_safety_csv_path option" do
+      expect(described_class.user_provided_csv?("option data_safety_csv_path")).to be true
+    end
+
+    it "is true for a CSV supplied via the env var" do
+      expect(described_class.user_provided_csv?("env ANDROID_DATA_SAFETY_CSV_PATH")).to be true
+    end
+
+    it "is true for the app override file" do
+      expect(described_class.user_provided_csv?("app override (android/data_safety.csv)")).to be true
+    end
+
+    it "is false for the bundled CLI-default template" do
+      expect(described_class.user_provided_csv?("CLI default şablon")).to be false
+    end
+
+    it "is false when nothing resolved" do
+      expect(described_class.user_provided_csv?("bulunamadı")).to be false
+    end
+
+    it "is false for nil" do
+      expect(described_class.user_provided_csv?(nil)).to be false
     end
   end
 
