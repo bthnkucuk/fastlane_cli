@@ -26,6 +26,7 @@ itself — single source of truth, no duplication.
 | [`fastlane-testflight`](fastlane-testflight/SKILL.md)                  | iOS TestFlight release flow — credentials, version handling, canonical action ids.                      |
 | [`fastlane-appstore-promote`](fastlane-appstore-promote/SKILL.md)      | Promote an already-uploaded TestFlight build to App Store review — interactive picker, no re-upload.     |
 | [`fastlane-play-internal`](fastlane-play-internal/SKILL.md)            | Android Play Console internal-track release flow — service account, version handling, action ids.       |
+| [`fastlane-play-store-setup`](fastlane-play-store-setup/SKILL.md)      | Play Console "Set up your app" automation — listing + contact details + Data safety, plus the manual remainder. |
 | [`fastlane-doctor`](fastlane-doctor/SKILL.md)                          | Diagnose env / credential / toolchain issues before invoking a lane.                                    |
 | [`fastlane-crashlytics-symbols`](fastlane-crashlytics-symbols/SKILL.md) | Upload iOS dSYMs, Android NDK symbols, and Flutter Dart-obfuscation symbols to Firebase Crashlytics (one `upload_symbols` flag).|
 | [`fastlane-cli-layout`](fastlane-cli-layout/SKILL.md)                  | Non-standard fastlane folder / profile locations — `root_path`, `fastlane_path`, profile discovery.     |
