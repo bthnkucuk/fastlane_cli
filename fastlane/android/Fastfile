@@ -1,4 +1,23 @@
 require_relative "../common_helpers"
+require_relative "../play_setup_helpers"
+
+# ---------------------------------------------------------------------------
+# Play Console "Set up your app" lanes — option / env surface
+# ---------------------------------------------------------------------------
+# Contact details (store_setup / update_app_details), per-field precedence
+# option → env → file at the metadata ROOT (supply ignores root-level files):
+#   contact_email    | ANDROID_CONTACT_EMAIL    | <metadata>/contactEmail.txt
+#   contact_phone    | ANDROID_CONTACT_PHONE    | <metadata>/contactPhone.txt
+#   contact_website  | ANDROID_CONTACT_WEBSITE  | <metadata>/contactWebsite.txt
+#   default_language | ANDROID_DEFAULT_LANGUAGE | <metadata>/defaultLanguage.txt
+# Data safety CSV (store_setup / upload_data_safety):
+#   data_safety_csv_path | ANDROID_DATA_SAFETY_CSV_PATH |
+#   app <fastlane>/android/data_safety.csv → CLI android/defaults/data_safety.csv
+# Composite gates (store_setup only, all default true):
+#   include_listing / include_contact_details / include_data_safety
+# Edit-commit behaviour (contact details): validate_only (default false),
+#   changes_not_sent_for_review (default false),
+#   rescue_changes_not_sent_for_review (default true).
 
 platform :android do
   private_lane :android_package_name do |options|
@@ -527,6 +546,32 @@ platform :android do
     download_from_play_store(**download_options)
     UI.success("✅ Play Store listing downloaded to #{metadata_path}")
 
+    # Contact-details pull: read-mode google_play_app_details (no setter
+    # fields → pure GET, edit aborted) → contactEmail.txt & friends at the
+    # metadata root. Best-effort: a failure here must NEVER break the
+    # listing download that already succeeded.
+    contact_status = "atlandı"
+    begin
+      details_result = google_play_app_details(
+        package_name: package_name,
+        json_key: FastlaneCliConfig.absolute_json_key(options)
+      )
+      written = PlaySetupHelpers.write_contact_files(
+        metadata_path: metadata_path,
+        details: details_result[:current_values] || {}
+      )
+      contact_status =
+        if written.empty?
+          "atlandı (Play'de iletişim bilgisi yok)"
+        else
+          "indirildi (#{written.join(', ')})"
+        end
+    rescue => e
+      reason = e.message.to_s.lines.first.to_s.strip
+      UI.important("⚠️ Contact-details pull skipped: #{reason}")
+      contact_status = "atlandı (#{reason})"
+    end
+
     locales = []
     if Dir.exist?(metadata_path)
       locales = Dir.children(metadata_path).select do |entry|
@@ -541,8 +586,226 @@ platform :android do
         "Track         : #{track}",
         "Output path   : #{metadata_path}",
         "Locales       : #{locales.empty? ? '(none)' : locales.join(', ')}",
-        "Version name  : #{version_name.empty? ? '(latest)' : version_name}"
+        "Version name  : #{version_name.empty? ? '(latest)' : version_name}",
+        "Contact files : #{contact_status}"
       ]
     )
+  end
+
+  # Shared google_play_app_details invocation for `update_app_details` and
+  # `store_setup`. Expects the caller to have merged the RESOLVED contact
+  # details (PlaySetupHelpers.resolve_contact_details output) into the
+  # options under :resolved_details and the resolved package under
+  # :package_name.
+  private_lane :push_play_contact_details do |options|
+    details = options[:resolved_details]
+
+    google_play_app_details(
+      package_name: options[:package_name],
+      json_key: FastlaneCliConfig.absolute_json_key(options),
+      contact_email: details[:contact_email][:value],
+      contact_phone: details[:contact_phone][:value],
+      contact_website: details[:contact_website][:value],
+      default_language: details[:default_language][:value],
+      validate_only: FastlaneCliConfig.bool_option(options, :validate_only, default: false),
+      changes_not_sent_for_review: FastlaneCliConfig.bool_option(
+        options, :changes_not_sent_for_review, default: false
+      ),
+      rescue_changes_not_sent_for_review: FastlaneCliConfig.bool_option(
+        options, :rescue_changes_not_sent_for_review, default: true
+      )
+    )
+  end
+
+  desc "Update Play Console contact details (email/phone/website, default language)"
+  lane :update_app_details do |options|
+    package_name = android_package_name(options)
+    metadata_path = FastlaneCliConfig.absolute_metadata_path(options, platform: :android)
+    details = PlaySetupHelpers.resolve_contact_details(options, metadata_path: metadata_path)
+
+    # Standalone lane → hard-fail when nothing resolves (a no-op contact
+    # update is useless; mirrors upload_dsyms' philosophy).
+    unless PlaySetupHelpers.any_contact_value?(details)
+      UI.user_error!(
+        "No contact details resolved. Provide contact_email/contact_phone/" \
+        "contact_website/default_language options, set the ANDROID_CONTACT_* / " \
+        "ANDROID_DEFAULT_LANGUAGE env vars, or place " \
+        "#{PlaySetupHelpers::CONTACT_FILES.values.join(' / ')} at the metadata " \
+        "root (#{metadata_path})."
+      )
+    end
+
+    result = push_play_contact_details(
+      options.merge(resolved_details: details, package_name: package_name)
+    )
+
+    field_lines = PlaySetupHelpers::CONTACT_FIELDS.map do |field|
+      entry = details[field]
+      value_label = entry[:value] || "(yok — dokunulmadı)"
+      source_label = entry[:source] ? "  ← #{entry[:source]}" : ""
+      format("%-17s: %s%s", field, value_label, source_label)
+    end
+    changes = result[:changes] || {}
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Play Console iletişim bilgileri",
+      [
+        "Package          : #{package_name}",
+        "Metadata root    : #{metadata_path}",
+        :sep,
+        *field_lines,
+        :sep,
+        "Değişen alanlar  : #{changes.empty? ? '(yok — Play zaten güncel)' : changes.keys.join(', ')}",
+        "Mod              : #{result[:mode]}",
+        "Kaynak sırası    : option → ANDROID_CONTACT_* env → metadata kökü dosyaları"
+      ]
+    )
+  end
+
+  desc "Upload (REPLACE) the Play Console Data safety form from CSV"
+  lane :upload_data_safety do |options|
+    package_name = android_package_name(options)
+    csv = PlaySetupHelpers.resolve_data_safety_csv_path(
+      options,
+      fastlane_root: FastlaneCliConfig.resolve_fastlane_root(options),
+      runner_root: FastlaneCliConfig.resolve_runner_fastlane_path(options),
+      base_dir: FastlaneCliConfig.resolve_app_root(options)
+    )
+
+    # A CSV normally ALWAYS resolves (the CLI ships a default template);
+    # reaching here means even the bundled default is absent.
+    if csv[:path].nil?
+      UI.user_error!(
+        "No Data safety CSV resolved — even the CLI default template " \
+        "(#{PlaySetupHelpers::DATA_SAFETY_DEFAULT_RELATIVE}) is missing. " \
+        "Provide data_safety_csv_path, set #{PlaySetupHelpers::DATA_SAFETY_ENV}, or " \
+        "place #{PlaySetupHelpers::DATA_SAFETY_APP_RELATIVE} in the app's fastlane folder."
+      )
+    end
+
+    stats = google_play_data_safety(
+      package_name: package_name,
+      json_key: FastlaneCliConfig.absolute_json_key(options),
+      csv_path: csv[:path]
+    )
+
+    FastlaneCliConfig.print_summary_box(
+      "Android · Data safety formu yüklendi",
+      [
+        "Package     : #{package_name}",
+        "CSV         : #{csv[:path]}",
+        "CSV kaynağı : #{csv[:source]}",
+        "Boyut       : #{stats[:lines]} satır / #{stats[:bytes]} bayt",
+        :sep,
+        "UYARI: Play Console'daki Data safety formu TAMAMEN bu CSV ile değiştirilir",
+        "(API'nin okuma ucu yok — geri çekilemez). Veri pratikleri farklıysa kendi",
+        "Console export'unuzu #{PlaySetupHelpers::DATA_SAFETY_APP_RELATIVE} olarak koyun;",
+        "app override her zaman CLI default şablonunu ezer."
+      ]
+    )
+  end
+
+  desc "Play Console 'Set up your app': listing + contact details + Data safety"
+  lane :store_setup do |options|
+    package_name = android_package_name(options)
+    metadata_path = FastlaneCliConfig.absolute_metadata_path(options, platform: :android)
+    step_errors = []
+    first_line = ->(error) { error.message.to_s.lines.first.to_s.strip }
+
+    # ① Store listing — delegate in-process to update_metadata when the
+    # metadata dir actually has locale directories; otherwise soft-skip.
+    listing_status =
+      if !FastlaneCliConfig.bool_option(options, :include_listing, default: true)
+        "atlandı (include_listing=false)"
+      else
+        locales = []
+        if Dir.exist?(metadata_path)
+          locales = Dir.children(metadata_path).select do |entry|
+            File.directory?(File.join(metadata_path, entry)) && !entry.start_with?(".")
+          end.sort
+        end
+
+        if locales.empty?
+          "atlandı (metadata dizininde locale klasörü yok: #{metadata_path})"
+        else
+          begin
+            update_metadata(options)
+            "yüklendi (#{locales.join(', ')})"
+          rescue => e
+            step_errors << "listing: #{first_line.call(e)}"
+            "hata (#{first_line.call(e)})"
+          end
+        end
+      end
+
+    # ② Contact details — only attempted when at least one field resolves.
+    details = PlaySetupHelpers.resolve_contact_details(options, metadata_path: metadata_path)
+    contact_status =
+      if !FastlaneCliConfig.bool_option(options, :include_contact_details, default: true)
+        "atlandı (include_contact_details=false)"
+      elsif !PlaySetupHelpers.any_contact_value?(details)
+        "atlandı (option/env/#{PlaySetupHelpers::CONTACT_FILES.values.join('|')} hiçbiri çözümlenmedi)"
+      else
+        begin
+          result = push_play_contact_details(
+            options.merge(resolved_details: details, package_name: package_name)
+          )
+          changes = result[:changes] || {}
+          if changes.empty?
+            "güncel (değişiklik yok)"
+          else
+            "güncellendi (#{changes.keys.join(', ')} · #{result[:mode]})"
+          end
+        rescue => e
+          step_errors << "contact details: #{first_line.call(e)}"
+          "hata (#{first_line.call(e)})"
+        end
+      end
+
+    # ③ Data safety — the CSV always resolves via the CLI default template
+    # unless even that is missing.
+    csv = PlaySetupHelpers.resolve_data_safety_csv_path(
+      options,
+      fastlane_root: FastlaneCliConfig.resolve_fastlane_root(options),
+      runner_root: FastlaneCliConfig.resolve_runner_fastlane_path(options),
+      base_dir: FastlaneCliConfig.resolve_app_root(options)
+    )
+    safety_status =
+      if !FastlaneCliConfig.bool_option(options, :include_data_safety, default: true)
+        "atlandı (include_data_safety=false)"
+      elsif csv[:path].nil?
+        "atlandı (Data safety CSV bulunamadı — CLI default şablon dahi yok)"
+      else
+        begin
+          stats = google_play_data_safety(
+            package_name: package_name,
+            json_key: FastlaneCliConfig.absolute_json_key(options),
+            csv_path: csv[:path]
+          )
+          "yüklendi (#{csv[:source]} · #{stats[:lines]} satır) — form TAMAMEN bu CSV ile değiştirildi"
+        rescue => e
+          step_errors << "data safety: #{first_line.call(e)}"
+          "hata (#{first_line.call(e)})"
+        end
+      end
+
+    # The final box ALWAYS prints — even when steps failed — so the user
+    # sees exactly which steps landed before the lane errors out.
+    FastlaneCliConfig.print_summary_box(
+      "Android · Play Console store setup",
+      [
+        "Package        : #{package_name}",
+        "Metadata root  : #{metadata_path}",
+        :sep,
+        "① Store listing   : #{listing_status}",
+        "② Contact details : #{contact_status}",
+        "③ Data safety     : #{safety_status}",
+        *PlaySetupHelpers.manual_checklist_lines
+      ]
+    )
+
+    unless step_errors.empty?
+      UI.user_error!("store_setup finished with errors — #{step_errors.join(' · ')}")
+    end
   end
 end

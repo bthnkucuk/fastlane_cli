@@ -178,6 +178,66 @@ void main() {
       expect(action.title[AppLocale.en], 'Overridden Title');
     });
 
+    test(
+      'bundled profile.base.yaml carries the Play Console store-setup actions',
+      () async {
+        final temp = await Directory.systemTemp.createTemp(
+          'fastlane_cli_profile_store_setup',
+        );
+        addTearDown(() => temp.delete(recursive: true));
+
+        // Merge the REAL bundled base profile (not a fixture) so this test
+        // locks the shipped action registry — mirrors how a consumer app's
+        // minimal profile picks the base actions up.
+        final fastlaneDir = _seedFastlaneDir('${temp.path}/fastlane');
+        File('fastlane/profile.base.yaml').copySync(
+          '${fastlaneDir.path}/profile.base.yaml',
+        );
+        File('${temp.path}/profile.yaml').writeAsStringSync(_appOnlyYaml);
+
+        final loader = ProfileLoader(
+          runnerResolver: _FakeRunnerResolver(fastlaneDir.path),
+        );
+        final profile = await loader.load('${temp.path}/profile.yaml');
+
+        final storeSetup = profile.actionsById['android_store_setup'];
+        expect(storeSetup, isNotNull);
+        expect(storeSetup!.requiresConfirmation, isTrue);
+        expect(storeSetup.command.platform, 'android');
+        expect(storeSetup.command.lane, 'store_setup');
+        expect(storeSetup.command.options['track'], 'alpha');
+        expect(storeSetup.command.options['include_images'], 'true');
+        expect(storeSetup.command.options['include_screenshots'], 'true');
+        // Zero-release-app guard: changelog upload needs an existing release.
+        expect(storeSetup.command.options['include_changelogs'], 'false');
+
+        final appDetails = profile.actionsById['android_update_app_details'];
+        expect(appDetails, isNotNull);
+        expect(appDetails!.requiresConfirmation, isFalse);
+        expect(appDetails.command.platform, 'android');
+        expect(appDetails.command.lane, 'update_app_details');
+
+        final dataSafety = profile.actionsById['android_upload_data_safety'];
+        expect(dataSafety, isNotNull);
+        // Whole-form replacement — must stay confirmation-gated.
+        expect(dataSafety!.requiresConfirmation, isTrue);
+        expect(dataSafety.command.platform, 'android');
+        expect(dataSafety.command.lane, 'upload_data_safety');
+
+        final androidCategory = profile.categories.firstWhere(
+          (category) => category.id == 'android',
+        );
+        expect(
+          androidCategory.actionIds,
+          containsAll(<String>[
+            'android_store_setup',
+            'android_update_app_details',
+            'android_upload_data_safety',
+          ]),
+        );
+      },
+    );
+
     test('parses plain string category title', () async {
       final temp = await Directory.systemTemp.createTemp(
         'fastlane_cli_profile_str_title',
@@ -624,6 +684,15 @@ actions:
       lane: noop
 shortcuts:
   - missing_shortcut
+''';
+
+/// Minimal consumer profile: just the app block — every action/category
+/// comes from the merged profile.base.yaml.
+const String _appOnlyYaml = '''
+app:
+  name: ExampleApp
+  root_path: ..
+  fastlane_path: fastlane
 ''';
 
 const String _baseProfileYaml = '''
