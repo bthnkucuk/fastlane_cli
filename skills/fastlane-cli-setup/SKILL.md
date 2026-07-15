@@ -154,6 +154,19 @@ export ANDROID_PACKAGE_NAME="com.example.app"
 export FASTLANE_APP_IDENTIFIER="com.example.app"
 ```
 
+Optional — Play Console "Set up your app" lanes (`android_store_setup`,
+`android_update_app_details`, `android_upload_data_safety`; see
+`fastlane-metadata-sync`). Each also resolves from a metadata-root file
+(`contactEmail.txt` etc.) when unset:
+
+```sh
+export ANDROID_CONTACT_EMAIL="support@example.com"    # Play Console contact email
+export ANDROID_CONTACT_PHONE="+10000000000"           # Play Console contact phone
+export ANDROID_CONTACT_WEBSITE="https://example.com"  # Play Console contact website
+export ANDROID_DEFAULT_LANGUAGE="en-US"               # listing default language (BCP-47)
+export ANDROID_DATA_SAFETY_CSV_PATH="/abs/path/data_safety.csv"  # Data safety CSV override
+```
+
 ### Optional, both platforms
 
 ```sh

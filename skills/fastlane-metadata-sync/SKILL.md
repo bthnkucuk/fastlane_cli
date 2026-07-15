@@ -32,6 +32,48 @@ Local layout: Play metadata lives under
 Override via the `ANDROID_METADATA_PATH` / `FASTLANE_ANDROID_METADATA_PATH`
 env var if the user keeps it elsewhere.
 
+### Play Console app setup (Android)
+
+Google Play blocks releases on new apps until the Console "Set up your app"
+checklist is complete. Three actions automate what the Play Developer API
+supports:
+
+| Action id                     | Lane (`android`)     | What it does                                                                                                      |
+| ----------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `android_store_setup`         | `store_setup`        | Composite: ① listing (`update_metadata`, `track: alpha`, changelogs off) → ② contact details → ③ Data safety. Confirmation-gated. Prints the manual-remainder checklist. |
+| `android_update_app_details`  | `update_app_details` | Contact email/phone/website + default language via `edits.details`. GET-diff-PATCH: only changed fields are written; no-op when Play is already current. |
+| `android_upload_data_safety`  | `upload_data_safety` | Uploads the Data safety form from CSV. Confirmation-gated (whole-form replacement). |
+
+**Contact details resolution** (per field, first hit wins): the
+`contact_email` / `contact_phone` / `contact_website` / `default_language`
+options → `ANDROID_CONTACT_EMAIL` / `ANDROID_CONTACT_PHONE` /
+`ANDROID_CONTACT_WEBSITE` / `ANDROID_DEFAULT_LANGUAGE` env vars → the files
+`contactEmail.txt` / `contactPhone.txt` / `contactWebsite.txt` /
+`defaultLanguage.txt` at the **metadata root** (next to the locale folders —
+supply only reads locale *directories*, so these root-level files are inert
+to `supply`). `android_download_store_listing` also **pulls** the current
+Play values into those files after the listing download (best-effort — a
+contact-details failure never breaks the download). `default_language` is
+validated against the listing's existing locales before it is sent.
+
+**Data safety CSV** resolution ladder: `data_safety_csv_path` option →
+`ANDROID_DATA_SAFETY_CSV_PATH` env → app override at
+`<fastlane_root>/android/data_safety.csv` → CLI default template at
+`<runner>/android/defaults/data_safety.csv` (conservative
+Flutter + Firebase Crashlytics answers: crash logs + diagnostics collected,
+encrypted in transit, nothing shared). The app override **always wins** over
+the CLI template. **Warnings**: the upload **replaces the ENTIRE form** and
+the API has **no read/pull counterpart** — there is no way to download the
+current form first. Any app whose data practices differ from the template
+MUST export its own CSV from a filled-in Play Console form (or hand-edit the
+template) and place it at `<fastlane_root>/android/data_safety.csv`.
+
+**Stays manual** (no Play Developer API; `store_setup` prints this checklist):
+**privacy policy URL** (first — it looks automatable but is not), App access,
+Ads, Content rating, Target audience, Government apps, Financial features,
+Health, App category. The app record itself must already exist in Play
+Console (creating it has no API either).
+
 ## iOS (App Store Connect)
 
 | Action id                          | Lane (`ios`)                                  | Direction | Notes                                                                              |

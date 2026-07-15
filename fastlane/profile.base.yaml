@@ -55,6 +55,9 @@ categories:
       - android_update_metadata
       - android_update_metadata_only
       - android_download_store_listing
+      - android_store_setup
+      - android_update_app_details
+      - android_upload_data_safety
       - android_google_play_help
   - id: ios
     title:
@@ -252,6 +255,58 @@ actions:
       lane: download_store_listing
       options:
         track: internal
+
+  - id: android_store_setup
+    category: android
+    title:
+      tr: Android Play Console kurulumu
+      en: Android Play Console store setup
+    description:
+      tr: Listing + iletişim bilgileri + Data safety formunu tek seferde yükler;
+        manuel kalan Console adımlarını listeler
+      en: Pushes listing + contact details + Data safety in one run; lists the
+        remaining manual Console steps
+    requires_confirmation: true
+    command:
+      type: fastlane
+      platform: android
+      lane: store_setup
+      options:
+        track: alpha
+        include_images: "true"
+        include_screenshots: "true"
+        include_changelogs: "false"
+
+  - id: android_update_app_details
+    category: android
+    title:
+      tr: Android iletişim bilgileri (Play Console)
+      en: Android contact details (Play Console)
+    description:
+      tr: Play Console iletişim e-postası/telefonu/web sitesi ve varsayılan dili
+        günceller (sadece değişen alanlar yazılır)
+      en: Updates Play Console contact email/phone/website and default language
+        (only changed fields are written)
+    command:
+      type: fastlane
+      platform: android
+      lane: update_app_details
+
+  - id: android_upload_data_safety
+    category: android
+    title:
+      tr: Android Data safety yükle
+      en: Android Data safety upload
+    description:
+      tr: Data safety formunu CSV'den yükler — mevcut form TAMAMEN değiştirilir
+        (app override yoksa CLI şablonu kullanılır)
+      en: Uploads the Data safety form from CSV — the ENTIRE existing form is
+        replaced (CLI template used unless the app overrides it)
+    requires_confirmation: true
+    command:
+      type: fastlane
+      platform: android
+      lane: upload_data_safety
 
   - id: android_google_play_help
     category: android
