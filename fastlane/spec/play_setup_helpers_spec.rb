@@ -133,16 +133,20 @@ RSpec.describe PlaySetupHelpers do
       ).to be true
     end
 
-    it "matches the 'unable to find the requested track' phrase" do
+    it "matches the real 'unable to find the requested track' error (any case)" do
       expect(
-        described_class.listing_not_ready_error?("Unable to find the requested track: alpha")
+        described_class.listing_not_ready_error?("Unable to find the requested track - 'alpha'")
       ).to be true
     end
 
-    it "matches a 'was not found' track-not-found variant" do
+    it "does NOT soft-skip a generic 'was not found' error (only the two exact supply phrases count)" do
+      # A bare "was not found" substring is NOT a supply not-ready phrase — a
+      # package-name / credentials / metadata-dir "not found" is a REAL failure
+      # the composite MUST surface (our own precondition: the app record must
+      # already exist), so this hard-fails rather than soft-skipping.
       expect(
-        described_class.listing_not_ready_error?("Track 'alpha' was not found.")
-      ).to be true
+        described_class.listing_not_ready_error?("Package name app.example.test was not found")
+      ).to be false
     end
 
     it "is false for an unrelated error" do
